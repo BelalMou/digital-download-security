@@ -1,0 +1,217 @@
+<title>Four ways a digital-download store leaks money</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#FBFBF9; --panel:#FFFFFF; --sunk:#F3F4F0;
+  --ink:#16181A; --ink-2:#4E545A; --ink-3:#818A91;
+  --rule:#E2E4DE; --rule-2:#CFD3CB;
+  --acct:#0E7A55;          /* ledger green — the single accent */
+  --acct-soft:#E4F2EB;
+  --bad:#A3342B;           /* only ever marks vulnerable code */
+  --bad-soft:#F8EAE8;
+  --code-bg:#15181B; --code-ink:#E6E9E4; --code-dim:#8B958D;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono","Roboto Mono",Menlo,Consolas,monospace;
+  --serif:"Iowan Old Style",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){
+  color-scheme:dark;
+  --bg:#101214; --panel:#171A1D; --sunk:#14171A;
+  --ink:#EDEFF1; --ink-2:#A2ABB2; --ink-3:#737D85;
+  --rule:#252A2E; --rule-2:#333A3F;
+  --acct:#4FBE8E; --acct-soft:#12291F;
+  --bad:#E8827A; --bad-soft:#2A1917;
+  --code-bg:#0B0D0F; --code-ink:#E6E9E4; --code-dim:#7C868D;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#101214; --panel:#171A1D; --sunk:#14171A;
+  --ink:#EDEFF1; --ink-2:#A2ABB2; --ink-3:#737D85;
+  --rule:#252A2E; --rule-2:#333A3F;
+  --acct:#4FBE8E; --acct-soft:#12291F;
+  --bad:#E8827A; --bad-soft:#2A1917;
+  --code-bg:#0B0D0F; --code-ink:#E6E9E4; --code-dim:#7C868D;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:720px;margin:0 auto;padding:clamp(32px,6vw,72px) clamp(20px,5vw,28px) 96px}
+h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.018em}
+p{margin:0 0 20px}
+a{color:var(--acct)}
+:focus-visible{outline:2px solid var(--acct);outline-offset:3px}
+
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 14px}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(32px,6vw,46px);line-height:1.1;
+  margin-bottom:20px}
+.standfirst{font-size:clamp(17px,2.4vw,19px);color:var(--ink-2);max-width:60ch;margin-bottom:34px}
+.runbox{background:var(--sunk);border:1px solid var(--rule);border-radius:12px;
+  padding:18px 20px;margin:0 0 44px}
+.runbox p{margin:0 0 10px;font-size:14.5px;color:var(--ink-2)}
+.runbox p:last-child{margin:0}
+
+/* leak sections */
+.leak{border-top:1px solid var(--rule);padding-top:34px;margin-top:44px}
+.leak-no{font-family:var(--mono);font-size:12px;letter-spacing:.16em;color:var(--acct);
+  display:block;margin-bottom:10px}
+.leak h2{font-size:clamp(23px,3.6vw,29px);margin-bottom:16px}
+.leak h2 + p{margin-top:0}
+
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:11px;padding:17px 19px;
+  overflow-x:auto;margin:0 0 20px;font-size:13.5px;line-height:1.6;border:1px solid transparent}
+pre code{font-family:var(--mono)}
+pre.wrong{border-color:var(--bad)}
+pre.right{border-color:var(--acct)}
+.tag{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;
+  letter-spacing:.12em;text-transform:uppercase;padding:4px 10px;border-radius:999px;
+  margin-bottom:9px}
+.tag.wrong{color:var(--bad);background:var(--bad-soft)}
+.tag.right{color:var(--acct);background:var(--acct-soft)}
+code:not(pre code){font-family:var(--mono);font-size:.88em;background:var(--sunk);
+  border:1px solid var(--rule);border-radius:5px;padding:1px 5px}
+
+.test{border-left:2px solid var(--acct);padding:2px 0 2px 18px;margin:0 0 20px;
+  color:var(--ink-2);font-size:15px}
+.test b{color:var(--ink);font-weight:600}
+ul{margin:0 0 20px;padding-left:22px}
+li{margin-bottom:9px}
+li::marker{color:var(--ink-3)}
+
+.outro{border-top:1px solid var(--rule);margin-top:52px;padding-top:32px}
+.outro h2{font-size:22px;margin-bottom:14px}
+footer{margin-top:44px;padding-top:22px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Payments engineering</p>
+<h1>Four ways a digital-download store leaks money</h1>
+<p class="standfirst">Selling files is the “easy” e-commerce case: no stock, no shipping, no
+returns logistics. That reputation is exactly why the security gets skipped — and the same
+four holes turn up in tutorial after tutorial.</p>
+
+<div class="runbox">
+  <p>Each leak below comes with a runnable test that fails against the naive implementation
+  and passes against the fixed one.</p>
+  <p><code>npm test</code> — 22 tests, ~200 ms, no database or network required. Everything is
+  mocked, so it runs anywhere and there is nothing to configure.</p>
+</div>
+
+<section class="leak">
+  <span class="leak-no">Leak 01</span>
+  <h2>The webhook that grants two purchases</h2>
+  <p>Stripe delivers webhooks <b>at least once</b>. Retries happen on timeouts, on 500s, and
+  sometimes for no reason you will ever discover. The naive handler is:</p>
+  <span class="tag wrong">vulnerable</span>
+<pre class="wrong"><code>const session = event.data.object;
+await db.purchase.create({ data: { ... } });   // runs twice on redelivery</code></pre>
+  <p>Two rows, one payment. Revenue reporting is now wrong, the buyer may get two confirmation
+  emails, and any per-purchase entitlement is doubled.</p>
+  <p>The fix is not “check if it exists first” on its own — that is a race. It is a
+  <b>unique constraint on the Stripe id</b>, so the database refuses the second write, with the
+  check as the fast path:</p>
+  <span class="tag right">fixed</span>
+<pre class="right"><code>const existing = await db.findPurchaseBySessionId(session.id);
+if (!existing) {
+  await db.createPurchase({
+    stripePaymentId: session.id,   // unique index catches the race
+    ...
+  });
+}</code></pre>
+  <p class="test"><b>Tested:</b> the second delivery still returns 200 — so Stripe stops
+  retrying — while <code>createPurchase</code> was called exactly once.</p>
+</section>
+
+<section class="leak">
+  <span class="leak-no">Leak 02</span>
+  <h2>The signature you forgot to verify</h2>
+  <p>Your webhook endpoint is a public URL that grants entitlements. If it does not verify the
+  signature, <b>anyone who guesses it can mint themselves purchases</b> by POSTing a plausible
+  JSON body.</p>
+  <span class="tag right">fixed</span>
+<pre class="right"><code>const event = stripe.webhooks.constructEvent(
+  await request.text(),                       // RAW body
+  request.headers.get("stripe-signature"),
+  process.env.STRIPE_WEBHOOK_SECRET
+);</code></pre>
+  <p>Two traps live here:</p>
+  <ul>
+    <li><b>The raw body matters.</b> If your framework parsed the JSON and you re-serialise it,
+    key order and whitespace change, the computed signature will not match — and the usual
+    “fix” people reach for is to skip verification entirely. Read the body as text.</li>
+    <li><b>Fail closed.</b> A verification error is a <code>400</code>, not a
+    <code>try/catch</code> that shrugs and carries on.</li>
+  </ul>
+  <p class="test"><b>Tested:</b> a missing signature header, a forged payload, and that
+  verification receives the raw bytes — whitespace included — rather than a re-serialised
+  object.</p>
+</section>
+
+<section class="leak">
+  <span class="leak-no">Leak 03</span>
+  <h2>The download URL that gets shared</h2>
+  <p>If a purchased file sits at a guessable or permanent URL, it will end up in a Discord
+  server. Two things have to be true: ownership is checked <b>server-side against the session</b>
+  — not by a query parameter, and not by hiding the link in the UI — and the URL expires.</p>
+  <span class="tag right">fixed</span>
+<pre class="right"><code>if (!purchase || purchase.buyerId !== userId) {
+  return new Response("Not found", { status: 404 });
+}
+const url = await storage.createSignedUrl(purchase.fileKey, 3600);</code></pre>
+  <p>Note the <code>404</code>. Returning <code>403</code> for “exists but isn’t yours” and
+  <code>404</code> for “doesn’t exist” <b>tells an attacker which purchase ids are real</b>.
+  Return the same thing for both.</p>
+  <p class="test"><b>Tested:</b> a non-owner gets 404, <b>no signed URL is ever minted</b> for
+  them, and the foreign-purchase response is byte-identical to the missing-purchase response.</p>
+</section>
+
+<section class="leak">
+  <span class="leak-no">Leak 04</span>
+  <h2>The refund that doesn’t revoke anything</h2>
+  <p>This one is nearly universal, because refunding happens in the Stripe dashboard and never
+  touches your app. The customer gets their money back <b>and keeps the file</b>.</p>
+  <span class="tag right">fixed</span>
+<pre class="right"><code>await db.purchase.updateMany({
+  where: { stripePaymentIntentId: intentId, refundedAt: null },
+  data:  { refundedAt: new Date() },
+});</code></pre>
+  <p>Three details worth stealing:</p>
+  <ul>
+    <li><b>Refund events reference the PaymentIntent, not the Checkout Session.</b> If you only
+    stored the session id, you cannot map a refund back to a purchase at all. Store both at
+    fulfilment — this is the detail that bites hardest, because it is invisible until the first
+    refund.</li>
+    <li><b>Partial refunds should not revoke.</b> The buyer still paid for part of it. Compare
+    <code>amount_refunded</code> against <code>amount</code>. Disputes always revoke.</li>
+    <li><b>Do not delete the purchase row.</b> It is the financial record the refund refers to.
+    Add a <code>refundedAt</code> column and check it at download time.</li>
+  </ul>
+  <p class="test"><b>Tested:</b> a full refund and a dispute both revoke; a partial refund does
+  not; a refunded purchase returns 410 and mints no URL.</p>
+</section>
+
+<section class="leak">
+  <span class="leak-no">Bonus</span>
+  <h2>The price you took from the browser</h2>
+  <p>Better known than the four, but still worth stating plainly: never accept an amount from
+  the client. Read it from your own database when you create the checkout session, and read it
+  from Stripe when you record the sale.</p>
+  <p class="test"><b>Tested:</b> with hostile <code>amount</code> and <code>price</code> values
+  planted in the session metadata, the recorded amount still comes from Stripe’s
+  <code>amount_total</code>.</p>
+</section>
+
+<div class="outro">
+  <h2>What this is, and what it isn’t</h2>
+  <p>This is a reference for the security-critical paths, not a store. The handlers take a
+  standard <code>Request</code> and return a <code>Response</code>, with their dependencies
+  injected — so they drop into Next.js, Remix, Hono or Express unchanged, and the tests need no
+  framework at all. It is deliberately small, because the tests are the point.</p>
+  <p>It is MIT licensed and complete enough to fix your own store without buying anything.</p>
+</div>
+
+<footer>MIT licensed · 22 tests · no database or network required</footer>
+</div>
