@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stripe webhook signature debugger — why constructEvent is failing</title>
+<meta name="description" content="Paste your raw payload, Stripe-Signature header and webhook secret. Computes the HMAC in your browser and tells you exactly why signature verification fails. Nothing is uploaded.">
+<link rel="canonical" href="https://belalmou.github.io/digital-download-security/stripe-signature-debugger.html">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Stripe webhook signature debugger">
+<meta property="og:description" content="Find out exactly why constructEvent throws 'No signatures found matching the expected signature'. Runs entirely in your browser.">
+<meta property="og:url" content="https://belalmou.github.io/digital-download-security/stripe-signature-debugger.html">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#128273;</text></svg>">
+<style>
+:root{
+  color-scheme:light;
+  --bg:#FBFBF9; --panel:#FFFFFF; --sunk:#F3F4F0;
+  --ink:#16181A; --ink-2:#4E545A; --ink-3:#818A91;
+  --rule:#E2E4DE; --rule-2:#CFD3CB;
+  --acct:#0E7A55; --acct-soft:#E4F2EB;
+  --bad:#A3342B; --bad-soft:#F8EAE8;
+  --warn:#8A6100; --warn-soft:#FBF1DD;
+  --code-bg:#15181B; --code-ink:#E6E9E4;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono",Menlo,Consolas,monospace;
+  --serif:"Iowan Old Style",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){
+  color-scheme:dark;
+  --bg:#101214; --panel:#171A1D; --sunk:#14171A;
+  --ink:#EDEFF1; --ink-2:#A2ABB2; --ink-3:#737D85;
+  --rule:#252A2E; --rule-2:#333A3F;
+  --acct:#4FBE8E; --acct-soft:#12291F;
+  --bad:#E8827A; --bad-soft:#2A1917;
+  --warn:#E0A03C; --warn-soft:#2A2113;
+  --code-bg:#0B0D0F; --code-ink:#E6E9E4;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#101214; --panel:#171A1D; --sunk:#14171A;
+  --ink:#EDEFF1; --ink-2:#A2ABB2; --ink-3:#737D85;
+  --rule:#252A2E; --rule-2:#333A3F;
+  --acct:#4FBE8E; --acct-soft:#12291F;
+  --bad:#E8827A; --bad-soft:#2A1917;
+  --warn:#E0A03C; --warn-soft:#2A2113;
+  --code-bg:#0B0D0F; --code-ink:#E6E9E4;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:820px;margin:0 auto;padding:clamp(28px,5vw,56px) clamp(18px,4vw,26px) 80px}
+h1,h2{margin:0;letter-spacing:-.018em;text-wrap:balance}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(28px,5vw,40px);line-height:1.12;margin-bottom:14px}
+p{margin:0 0 18px}
+a{color:var(--acct)}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 12px}
+.lede{color:var(--ink-2);max-width:62ch;margin-bottom:14px}
+.privacy{background:var(--acct-soft);border:1px solid var(--acct);border-radius:10px;
+  padding:12px 15px;font-size:14px;color:var(--ink);margin:0 0 30px}
+.privacy b{font-weight:650}
+
+form{display:flex;flex-direction:column;gap:18px;margin-bottom:26px}
+label{display:block;font-size:13px;font-weight:650;margin-bottom:6px}
+label span{display:block;font-weight:400;color:var(--ink-3);font-size:12.5px;margin-top:2px}
+textarea,input{width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--rule-2);
+  border-radius:9px;padding:11px 13px;font-family:var(--mono);font-size:13px;line-height:1.55}
+textarea{resize:vertical}
+textarea:focus,input:focus{outline:2px solid var(--acct);outline-offset:1px;border-color:transparent}
+button{background:var(--ink);color:var(--bg);border:0;border-radius:999px;padding:13px 26px;
+  font-size:15px;font-weight:650;font-family:inherit;cursor:pointer;align-self:flex-start}
+button:hover{opacity:.9}
+
+.result{border-radius:12px;padding:18px 20px;margin-bottom:26px;display:none}
+.result.show{display:block}
+.result h2{font-size:17px;margin-bottom:10px;display:flex;align-items:center;gap:9px}
+.result.pass{background:var(--acct-soft);border:1px solid var(--acct)}
+.result.pass h2{color:var(--acct)}
+.result.fail{background:var(--bad-soft);border:1px solid var(--bad)}
+.result.fail h2{color:var(--bad)}
+.result.warn{background:var(--warn-soft);border:1px solid var(--warn)}
+.result.warn h2{color:var(--warn)}
+.result ul{margin:10px 0 0;padding-left:20px;font-size:14.5px}
+.result li{margin-bottom:7px}
+.kv{font-family:var(--mono);font-size:12.5px;background:var(--panel);border:1px solid var(--rule);
+  border-radius:8px;padding:11px 13px;margin-top:12px;overflow-x:auto}
+.kv div{display:flex;gap:12px;white-space:nowrap}
+.kv b{color:var(--ink-3);font-weight:400;min-width:150px}
+
+.notes{border-top:1px solid var(--rule);margin-top:36px;padding-top:28px}
+.notes h2{font-size:20px;margin-bottom:14px}
+.notes li{margin-bottom:11px}
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:15px 17px;
+  overflow-x:auto;font-size:13px;line-height:1.6;margin:0 0 18px}
+pre code{font-family:var(--mono)}
+code:not(pre code){font-family:var(--mono);font-size:.88em;background:var(--sunk);
+  border:1px solid var(--rule);border-radius:5px;padding:1px 5px}
+footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+footer a{color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="eyebrow">Free tool</p>
+<h1>Why is my Stripe webhook signature failing?</h1>
+<p class="lede">Paste the three things <code>constructEvent</code> takes. This computes the same
+HMAC Stripe does and tells you which part doesn’t line up — usually the body, not the secret.</p>
+
+<p class="privacy"><b>Nothing leaves your browser.</b> The HMAC is computed locally with the Web
+Crypto API. There is no server, no analytics, no network request. View source, or
+<a href="https://github.com/BelalMou/digital-download-security">read it on GitHub</a> — it’s one
+file.</p>
+
+<form id="f">
+  <div>
+    <label for="payload">Raw request body
+      <span>Exactly the bytes you received. If you did JSON.parse then re-stringified, that’s very likely your bug.</span>
+    </label>
+    <textarea id="payload" rows="7" spellcheck="false" placeholder='{"id":"evt_1","object":"event",...}'></textarea>
+  </div>
+  <div>
+    <label for="header">Stripe-Signature header
+      <span>The whole header value, e.g. t=1699999999,v1=abc123...</span>
+    </label>
+    <textarea id="header" rows="2" spellcheck="false" placeholder="t=1699999999,v1=5257a869e7..."></textarea>
+  </div>
+  <div>
+    <label for="secret">Webhook signing secret
+      <span>Starts with whsec_. This is the endpoint's signing secret, not your API key.</span>
+    </label>
+    <input id="secret" type="text" spellcheck="false" placeholder="whsec_...">
+  </div>
+  <button type="submit">Check signature</button>
+</form>
+
+<div class="result" id="out"></div>
+
+<div class="notes">
+  <h2>The four things that are usually wrong</h2>
+  <ul>
+    <li><b>You verified a re-serialised body.</b> Frameworks parse JSON for you. Re-stringifying
+    changes whitespace and key order, so the HMAC differs. Read the raw text: in Next.js
+    <code>await request.text()</code>, in Express <code>express.raw({type:'application/json'})</code>.</li>
+    <li><b>You used the wrong secret.</b> The signing secret is per-endpoint and starts with
+    <code>whsec_</code>. The one printed by <code>stripe listen</code> is different from the one
+    in the Dashboard for your deployed endpoint — using the CLI's secret in production is a
+    classic.</li>
+    <li><b>A proxy rewrote the body.</b> Some gateways re-encode or strip a trailing newline.
+    If the signature works locally but not in production, suspect what sits in front of your app.</li>
+    <li><b>The timestamp is outside tolerance.</b> The signature can be valid while
+    <code>constructEvent</code> still throws, because it also enforces a default 5-minute window
+    against replay. Replaying an old captured request will fail for this reason alone.</li>
+  </ul>
+
+  <h2>What correct verification looks like</h2>
+<pre><code>const event = stripe.webhooks.constructEvent(
+  await request.text(),                       // raw bytes, not a re-serialised object
+  request.headers.get("stripe-signature"),
+  process.env.STRIPE_WEBHOOK_SECRET           // whsec_..., per endpoint
+);</code></pre>
+  <p>Verifying the signature is only the first of four places a digital-download store leaks
+  money. The others — a webhook that grants two purchases, a download URL that gets shared, and
+  a refund that doesn’t revoke access — are written up
+  <a href="./">here, with runnable tests</a>.</p>
+</div>
+
+<footer>
+  MIT licensed · runs entirely client-side ·
+  <a href="https://github.com/BelalMou/digital-download-security">source</a>
+</footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const enc = new TextEncoder();
+
+function parseHeader(h) {
+  const out = { t: null, v1: [], v0: [], unknown: [] };
+  h.trim().split(",").forEach((part) => {
+    const i = part.indexOf("=");
+    if (i < 0) return;
+    const k = part.slice(0, i).trim(), v = part.slice(i + 1).trim();
+    if (k === "t") out.t = v;
+    else if (k === "v1") out.v1.push(v);
+    else if (k === "v0") out.v0.push(v);
+    else out.unknown.push(k);
+  });
+  return out;
+}
+
+async function hmacHex(secret, message) {
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function show(kind, title, points, kv) {
+  const out = $("out");
+  out.className = "result show " + kind;
+  out.innerHTML =
+    "<h2>" + title + "</h2>" +
+    (points.length ? "<ul>" + points.map((p) => "<li>" + p + "</li>").join("") + "</ul>" : "") +
+    (kv ? '<div class="kv">' + Object.entries(kv).map(
+        ([k, v]) => "<div><b>" + k + "</b><span>" + v + "</span></div>").join("") + "</div>" : "");
+  out.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+$("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = $("payload").value;
+  const headerRaw = $("header").value;
+  const secret = $("secret").value.trim();
+
+  if (!payload || !headerRaw || !secret) {
+    return show("warn", "Fill in all three fields", [
+      "The check needs the raw body, the full Stripe-Signature header, and the whsec_ secret."
+    ]);
+  }
+
+  const h = parseHeader(headerRaw);
+  const problems = [];
+  if (!h.t) problems.push("No <code>t=</code> timestamp in the header — is this the whole header value?");
+  if (!h.v1.length) problems.push("No <code>v1=</code> signature in the header.");
+  if (!secret.startsWith("whsec_"))
+    problems.push("The secret doesn't start with <code>whsec_</code>. A signing secret is per-endpoint — an <code>sk_</code> API key will never verify.");
+  if (problems.length) return show("fail", "The inputs don't look right", problems);
+
+  const expected = await hmacHex(secret, h.t + "." + payload);
+  const match = h.v1.includes(expected);
+
+  const age = Math.floor(Date.now() / 1000) - Number(h.t);
+  const ageTxt = isFinite(age)
+    ? (Math.abs(age) < 300 ? age + "s (within tolerance)" : age + "s (outside the default 5-min window)")
+    : "unparseable";
+
+  const kv = {
+    "signed payload": "&lt;t&gt;.&lt;body&gt; — " + (h.t + "." + payload).length + " chars",
+    "expected v1": expected.slice(0, 32) + "…",
+    "header v1": h.v1[0].slice(0, 32) + "…",
+    "timestamp age": ageTxt,
+  };
+
+  if (match && Math.abs(age) < 300) {
+    return show("pass", "✓ Signature is valid", [
+      "The HMAC matches and the timestamp is inside the tolerance window. If <code>constructEvent</code> still throws in your app, the body it receives differs from what you pasted here — log <code>body.length</code> at the top of the handler and compare."
+    ], kv);
+  }
+  if (match) {
+    return show("warn", "Signature matches, but the timestamp is stale", [
+      "The HMAC is correct, so your secret and body are right. Stripe also enforces a 5-minute replay window by default, which is why it still throws.",
+      "This is expected when replaying a captured request. In tests, pass a fresh timestamp or set <code>tolerance</code>."
+    ], kv);
+  }
+  return show("fail", "✗ Signature does not match", [
+    "<b>Most likely: the body isn't byte-identical.</b> If your framework parsed the JSON and you re-serialised it, whitespace and key order changed. Read the raw text instead.",
+    "Next most likely: wrong secret. The <code>stripe listen</code> secret differs from your deployed endpoint's.",
+    "Also possible: a proxy re-encoded the body, or a trailing newline was added or stripped."
+  ], kv);
+});
+</script>
+</body>
+</html>

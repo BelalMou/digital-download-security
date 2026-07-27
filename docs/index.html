@@ -1,4 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Four ways a digital-download store leaks money</title>
+<meta name="description" content="Stripe webhooks fire more than once, download URLs get shared, and refunds don't revoke access. Four failure modes in digital-download stores, each with a runnable test. MIT licensed.">
+<link rel="canonical" href="https://belalmou.github.io/digital-download-security/">
+<meta name="author" content="Belal Moussa">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+
+<meta property="og:type" content="article">
+<meta property="og:title" content="Four ways a digital-download store leaks money">
+<meta property="og:description" content="Stripe webhooks fire more than once, download URLs get shared, and refunds don't revoke access. Four failure modes in digital-download stores, each with a runnable test. MIT licensed.">
+<meta property="og:url" content="https://belalmou.github.io/digital-download-security/">
+<meta property="og:site_name" content="digital-download-security">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Four ways a digital-download store leaks money">
+<meta name="twitter:description" content="Stripe webhooks fire more than once, download URLs get shared, and refunds don't revoke access. Four failure modes in digital-download stores, each with a runnable test. MIT licensed.">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#128274;</text></svg>">
+<script type="application/ld+json">{
+  "@context":"https://schema.org",
+  "@type":"TechArticle",
+  "headline":"Four ways a digital-download store leaks money",
+  "description":"Stripe webhooks fire more than once, download URLs get shared, and refunds don't revoke access. Four failure modes in digital-download stores, each with a runnable test. MIT licensed.",
+  "author":{"@type":"Person","name":"Belal Moussa","url":"https://github.com/BelalMou"},
+  "datePublished":"2026-07-27",
+  "dateModified":"2026-07-27",
+  "license":"https://opensource.org/licenses/MIT",
+  "mainEntityOfPage":{"@type":"WebPage","@id":"https://belalmou.github.io/digital-download-security/"},
+  "keywords":"stripe webhook idempotency, webhook fired twice, signed download url, refund revoke access, payment security"
+}</script>
 <style>
 :root{
   color-scheme:light;
@@ -84,7 +116,8 @@ footer{margin-top:44px;padding-top:22px;border-top:1px solid var(--rule);
   font-family:var(--mono);font-size:12px;color:var(--ink-3)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
-
+</head>
+<body>
 <div class="wrap">
 
 <p class="eyebrow">Payments engineering</p>
@@ -148,6 +181,9 @@ if (!existing) {
   <p class="test"><b>Tested:</b> a missing signature header, a forged payload, and that
   verification receives the raw bytes — whitespace included — rather than a re-serialised
   object.</p>
+  <p>Debugging a failing signature right now? <a href="./stripe-signature-debugger.html">Paste
+  it into the checker</a> — it computes the same HMAC in your browser and tells you which part
+  doesn’t line up. Nothing is uploaded.</p>
 </section>
 
 <section class="leak">
@@ -213,9 +249,8 @@ const url = await storage.createSignedUrl(purchase.fileKey, 3600);</code></pre>
   <p>It is MIT licensed and complete enough to fix your own store without buying anything.</p>
 </div>
 
-<p style="margin-top:34px"><a href="https://github.com/BelalMou/digital-download-security"
-   style="font-family:var(--mono);font-size:14px;display:inline-flex;align-items:center;gap:9px;
-   text-decoration:none;border:1px solid var(--rule-2);border-radius:999px;padding:11px 20px;
-   color:var(--ink)">Source and tests on GitHub &rarr;</a></p>
+<p style="margin-top:34px"><a href="https://github.com/BelalMou/digital-download-security" style="font-family:var(--mono);font-size:14px;display:inline-flex;align-items:center;gap:9px;text-decoration:none;border:1px solid var(--rule-2);border-radius:999px;padding:11px 20px;color:var(--ink)">Source and tests on GitHub &rarr;</a></p>
 <footer>MIT licensed · 22 tests · no database or network required</footer>
 </div>
+</body>
+</html>
