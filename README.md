@@ -154,11 +154,14 @@ unit_amount: Math.round(asset.price * 100)   // from your DB, always
 This is a **reference for the security-critical paths**, not a store. It is
 deliberately small so the tests are the point.
 
-If you want the whole thing built — storefront, auth, admin moderation, seller
-dashboards, EN/PL i18n, transactional email, and these four fixes already wired —
-that's the [Digital Storefront Starter](#), a paid kit. It's the same code these
-tests were extracted from. No pressure: everything above is MIT and complete
-enough to fix your own store without buying anything.
+These handlers were extracted from a full storefront I'm packaging as a paid
+starter kit — auth, admin moderation, transactional email, EN/PL i18n, and these
+four fixes already wired together. It isn't on sale yet, so there's nothing to
+click and nothing to sign up for. If you'd want it, open an issue and say so;
+that's the only signal I have.
+
+Everything here is MIT and complete enough to fix your own store without buying
+anything, which is the point of publishing it.
 
 ## Licence
 
