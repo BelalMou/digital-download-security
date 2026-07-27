@@ -139,6 +139,29 @@ file.</p>
 
 <div class="result" id="out"></div>
 
+
+<div class="notes" id="generate">
+  <h2>Or generate a valid signature</h2>
+  <p>Writing a test for your webhook handler? You need a payload signed with your test
+  secret. Paste both and get a <code>Stripe-Signature</code> header you can send.</p>
+  <form id="g">
+    <div>
+      <label for="gpayload">Payload to sign
+        <span>Whatever body your test will POST.</span>
+      </label>
+      <textarea id="gpayload" rows="4" spellcheck="false" placeholder='{"id":"evt_test","type":"checkout.session.completed"}'></textarea>
+    </div>
+    <div>
+      <label for="gsecret">Signing secret
+        <span>Use a TEST secret. Never paste a live one anywhere, including here.</span>
+      </label>
+      <input id="gsecret" type="text" spellcheck="false" placeholder="whsec_...">
+    </div>
+    <button type="submit">Generate header</button>
+  </form>
+  <div class="result" id="gout"></div>
+</div>
+
 <div class="notes">
   <h2>The four things that are usually wrong</h2>
   <ul>
@@ -270,6 +293,32 @@ $("f").addEventListener("submit", async (e) => {
     "Also possible: a proxy re-encoded the body, or a trailing newline was added or stripped."
   ], kv);
 });
+
+$("g").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = $("gpayload").value;
+  const secret = $("gsecret").value.trim();
+  const out = $("gout");
+  if (!payload || !secret) {
+    out.className = "result show warn";
+    out.innerHTML = "<h2>Both fields are needed</h2>";
+    return;
+  }
+  if (secret.startsWith("sk_") || secret.startsWith("rk_")) {
+    out.className = "result show fail";
+    out.innerHTML = "<h2>That is an API key, not a signing secret</h2><ul><li>Signing secrets start with <code>whsec_</code>. Nothing was computed.</li></ul>";
+    return;
+  }
+  const t = Math.floor(Date.now() / 1000);
+  const sig = await hmacHex(secret, t + "." + payload);
+  const header = "t=" + t + ",v1=" + sig;
+  out.className = "result show pass";
+  out.innerHTML =
+    "<h2>Header generated</h2>" +
+    '<div class="kv"><div><b>Stripe-Signature</b><span>' + header + "</span></div></div>" +
+    "<ul><li>Valid for 5 minutes — Stripe's default replay tolerance. Generate a fresh one per test run, or your suite will start failing once it is stale.</li></ul>";
+});
+
 </script>
 </body>
 </html>
