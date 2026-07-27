@@ -1,5 +1,9 @@
 # Four ways a digital-download store leaks money
 
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-0E7A55)](LICENSE)
+
+**Read it as a write-up:** <https://belalmou.github.io/digital-download-security/>
+
 Selling files is the "easy" e-commerce case: no stock, no shipping, no returns
 logistics. That reputation is why the security gets skipped, and the same four
 holes turn up in tutorial after tutorial.
