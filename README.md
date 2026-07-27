@@ -163,6 +163,10 @@ that's the only signal I have.
 Everything here is MIT and complete enough to fix your own store without buying
 anything, which is the point of publishing it.
 
+## Buy the starter kit
+
+The full storefront these handlers came from is $39: <https://buy.stripe.com/cNiaEX9B32944CXevRew800>
+
 ## Licence
 
 MIT.
