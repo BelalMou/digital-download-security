@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stripe webhook fired twice — why it happens and how to make fulfilment idempotent</title>
+<meta name="description" content="Stripe delivers webhooks at least once, so duplicate deliveries are normal, not a bug. Why check-then-insert races, and how a unique constraint on the event or session id makes fulfilment idempotent. With a runnable test.">
+<link rel="canonical" href="https://belalmou.github.io/digital-download-security/stripe-webhook-fired-twice.html">
+<meta name="robots" content="index, follow, max-snippet:-1">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Stripe webhook fired twice — and how to stop double-granting">
+<meta property="og:description" content="Duplicate webhook deliveries are guaranteed by design. Check-then-insert is a race. Here's the fix, with a test.">
+<meta property="og:url" content="https://belalmou.github.io/digital-download-security/stripe-webhook-fired-twice.html">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#128260;</text></svg>">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+ "headline":"Stripe webhook fired twice — why it happens and how to make fulfilment idempotent",
+ "description":"Stripe delivers webhooks at least once. Duplicate deliveries are normal. Check-then-insert is a race; a unique constraint is the fix.",
+ "author":{"@type":"Person","name":"Belal Moussa","url":"https://github.com/BelalMou"},
+ "datePublished":"2026-07-28","license":"https://opensource.org/licenses/MIT",
+ "mainEntityOfPage":{"@type":"WebPage","@id":"https://belalmou.github.io/digital-download-security/stripe-webhook-fired-twice.html"}}
+</script>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#FBFBF9; --panel:#FFFFFF; --sunk:#F3F4F0;
+  --ink:#16181A; --ink-2:#4E545A; --ink-3:#818A91;
+  --rule:#E2E4DE; --rule-2:#CFD3CB;
+  --acct:#0E7A55; --acct-soft:#E4F2EB;
+  --bad:#A3342B; --bad-soft:#F8EAE8;
+  --code-bg:#15181B; --code-ink:#E6E9E4;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono",Menlo,Consolas,monospace;
+  --serif:"Iowan Old Style",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){
+  color-scheme:dark;
+  --bg:#101214; --panel:#171A1D; --sunk:#14171A;
+  --ink:#EDEFF1; --ink-2:#A2ABB2; --ink-3:#737D85;
+  --rule:#252A2E; --rule-2:#333A3F;
+  --acct:#4FBE8E; --acct-soft:#12291F;
+  --bad:#E8827A; --bad-soft:#2A1917;
+  --code-bg:#0B0D0F; --code-ink:#E6E9E4;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#101214; --panel:#171A1D; --sunk:#14171A;
+  --ink:#EDEFF1; --ink-2:#A2ABB2; --ink-3:#737D85;
+  --rule:#252A2E; --rule-2:#333A3F;
+  --acct:#4FBE8E; --acct-soft:#12291F;
+  --bad:#E8827A; --bad-soft:#2A1917;
+  --code-bg:#0B0D0F; --code-ink:#E6E9E4;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:720px;margin:0 auto;padding:clamp(30px,6vw,68px) clamp(20px,5vw,28px) 90px}
+h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.018em}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(30px,5.6vw,43px);line-height:1.1;margin-bottom:18px}
+h2{font-size:clamp(21px,3.4vw,27px);margin:44px 0 15px}
+h3{font-size:18px;margin:28px 0 10px}
+p{margin:0 0 19px}
+a{color:var(--acct)}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 13px}
+.standfirst{font-size:clamp(17px,2.3vw,19px);color:var(--ink-2);max-width:60ch;margin-bottom:32px}
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:11px;padding:16px 18px;
+  overflow-x:auto;margin:0 0 19px;font-size:13.5px;line-height:1.6;border:1px solid transparent}
+pre code{font-family:var(--mono)}
+pre.wrong{border-color:var(--bad)}
+pre.right{border-color:var(--acct)}
+.tag{display:inline-flex;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;padding:4px 10px;border-radius:999px;margin-bottom:9px}
+.tag.wrong{color:var(--bad);background:var(--bad-soft)}
+.tag.right{color:var(--acct);background:var(--acct-soft)}
+code:not(pre code){font-family:var(--mono);font-size:.88em;background:var(--sunk);
+  border:1px solid var(--rule);border-radius:5px;padding:1px 5px}
+ul,ol{margin:0 0 19px;padding-left:22px}
+li{margin-bottom:9px}
+li::marker{color:var(--ink-3)}
+.callout{background:var(--sunk);border:1px solid var(--rule);border-radius:11px;
+  padding:16px 19px;margin:0 0 22px;font-size:15px}
+.callout b{display:block;margin-bottom:5px}
+.seq{border-left:2px solid var(--rule-2);padding-left:18px;margin:0 0 22px;
+  font-family:var(--mono);font-size:13.5px;line-height:1.9;color:var(--ink-2)}
+.seq b{color:var(--bad);font-weight:600}
+footer{margin-top:48px;padding-top:22px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+footer a{color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="eyebrow">Payments engineering</p>
+<h1>Your Stripe webhook fired twice. That’s not a bug.</h1>
+<p class="standfirst">Stripe delivers webhook events <b>at least once</b> — duplicates are part
+of the contract, not a failure. If a second delivery grants a second purchase, the problem is in
+the handler, and “check if it already exists” on its own won’t fix it.</p>
+
+<h2>Why you got two</h2>
+<p>Any of these produces a redelivery, and all of them are normal:</p>
+<ul>
+  <li>Your endpoint took longer than Stripe’s timeout, so it retried — even though your handler
+  completed successfully.</li>
+  <li>Your handler threw <em>after</em> doing the work, returning a 500. Stripe sees failure and
+  retries something that already happened.</li>
+  <li>A deploy, cold start, or proxy dropped the connection mid-response.</li>
+  <li>Occasionally, no discernible reason at all. At-least-once means what it says.</li>
+</ul>
+<p>You cannot make deliveries unique. You can only make <em>fulfilment</em> idempotent.</p>
+
+<h2>Why check-then-insert isn’t enough</h2>
+<p>The obvious fix looks right and fails under exactly the conditions that cause duplicates:</p>
+<span class="tag wrong">racy</span>
+<pre class="wrong"><code>const existing = await db.purchase.findFirst({
+  where: { stripePaymentId: session.id },
+});
+if (!existing) {
+  await db.purchase.create({ data: { ... } });   // two requests can both reach here
+}</code></pre>
+<p>Two deliveries arriving close together interleave:</p>
+<div class="seq">
+  A → SELECT … → not found<br>
+  B → SELECT … → not found<br>
+  A → INSERT → ok<br>
+  B → INSERT → <b>ok — two rows, one payment</b>
+</div>
+<p>The window is milliseconds, which is precisely the gap between a retry and the original when
+a timeout fires. This is why the bug shows up in production and never in testing.</p>
+
+<h2>The fix: let the database enforce it</h2>
+<p>Put a <b>unique constraint on the Stripe id</b>. The check becomes a fast path; the constraint
+is what actually guarantees correctness.</p>
+<span class="tag right">correct</span>
+<pre class="right"><code>// schema
+model Purchase {
+  stripePaymentId String @unique   // the Checkout Session id
+  // …
+}
+
+// handler
+const existing = await db.purchase.findFirst({
+  where: { stripePaymentId: session.id },
+});
+if (!existing) {
+  await db.purchase.create({
+    data: { stripePaymentId: session.id, /* … */ },
+  });
+}</code></pre>
+<p>Now the racing second insert violates the constraint and throws. Return a 500, Stripe retries
+once more, the <code>findFirst</code> now sees the row, and the handler returns 200 cleanly.
+The outcome is one purchase regardless of how the deliveries interleave.</p>
+
+<div class="callout">
+  <b>Use the right id.</b> The Checkout Session id (<code>cs_…</code>) is stable across
+  redeliveries of the same completed checkout. The <em>event</em> id (<code>evt_…</code>) is also
+  fine and is more general — but note two different events can describe the same underlying
+  purchase, so pick the id that identifies <em>the thing you don’t want to do twice</em>, not
+  merely the message.
+</div>
+
+<h2>Three things people get wrong next</h2>
+
+<h3>Returning 500 because a side effect failed</h3>
+<p>If your confirmation email throws after the purchase row was written, and you let that
+propagate, Stripe retries a fulfilment that already succeeded. Let side effects fail quietly:</p>
+<pre class="right"><code>sendConfirmation(purchase).catch((err) =&gt; console.error("[email]", err));</code></pre>
+
+<h3>Acking with 200 when nothing was written</h3>
+<p>The mirror image. If the database was genuinely unreachable, you <em>want</em> the retry —
+return a 500. Idempotency is what makes that retry safe.</p>
+
+<h3>Trusting an amount from metadata</h3>
+<p>While you’re in here: read the amount from <code>session.amount_total</code>, never from
+metadata or anything else the client can influence.</p>
+
+<h2>Test it, don’t assume it</h2>
+<p>The assertion worth writing is that a <em>second</em> delivery still returns 200 while the
+create ran exactly once:</p>
+<pre class="right"><code>it("does not double-grant when Stripe redelivers", async () =&gt; {
+  findPurchaseBySessionId.mockResolvedValue(null);
+  await handleStripeWebhook(req(), deps);          // first delivery
+
+  findPurchaseBySessionId.mockResolvedValue({ id: "p1" });   // now exists
+  const second = await handleStripeWebhook(req(), deps);
+
+  expect(second.status).toBe(200);                 // so Stripe stops retrying
+  expect(createPurchase).toHaveBeenCalledTimes(1); // still one grant
+});</code></pre>
+<p>That test, and 21 others covering signature verification, download authorization and refund
+revocation, are MIT licensed and runnable:
+<a href="https://github.com/BelalMou/digital-download-security">github.com/BelalMou/digital-download-security</a>.</p>
+
+<h2>Reproduce it locally</h2>
+<p>To see a redelivery hit your own handler, POST the same signed event twice. The
+<a href="./stripe-signature-debugger.html">signature tool</a> builds a signed <code>curl</code>
+command from a realistic <code>checkout.session.completed</code> payload — run it twice and check
+your database has one row.</p>
+
+<p>Duplicate delivery is one of four ways a digital-download store leaks money. The others —
+unverified signatures, shareable download URLs, and refunds that don’t revoke access — are
+written up <a href="./">here</a>.</p>
+
+<footer>
+  MIT licensed ·
+  <a href="https://github.com/BelalMou/digital-download-security">source and tests</a> ·
+  <a href="./stripe-signature-debugger.html">signature tool</a>
+</footer>
+</div>
+</body>
+</html>

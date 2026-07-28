@@ -26,7 +26,7 @@
   "description":"Stripe webhooks fire more than once, download URLs get shared, and refunds don't revoke access. Four failure modes in digital-download stores, each with a runnable test. MIT licensed.",
   "author":{"@type":"Person","name":"Belal Moussa","url":"https://github.com/BelalMou"},
   "datePublished":"2026-07-27",
-  "dateModified":"2026-07-27",
+  "dateModified":"2026-07-28",
   "license":"https://opensource.org/licenses/MIT",
   "mainEntityOfPage":{"@type":"WebPage","@id":"https://belalmou.github.io/digital-download-security/"},
   "keywords":"stripe webhook idempotency, webhook fired twice, signed download url, refund revoke access, payment security"
@@ -156,6 +156,8 @@ if (!existing) {
 }</code></pre>
   <p class="test"><b>Tested:</b> the second delivery still returns 200 — so Stripe stops
   retrying — while <code>createPurchase</code> was called exactly once.</p>
+  <p>Hit this in production? <a href="./stripe-webhook-fired-twice.html">Longer write-up on why
+  duplicate deliveries happen</a> and why check-then-insert races.</p>
 </section>
 
 <section class="leak">

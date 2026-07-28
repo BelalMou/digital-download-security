@@ -123,6 +123,8 @@ if (!existing) {
 }</code></pre>
   <p class="test"><b>Tested:</b> the second delivery still returns 200 — so Stripe stops
   retrying — while <code>createPurchase</code> was called exactly once.</p>
+  <p>Hit this in production? <a href="./stripe-webhook-fired-twice.html">Longer write-up on why
+  duplicate deliveries happen</a> and why check-then-insert races.</p>
 </section>
 
 <section class="leak">
