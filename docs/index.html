@@ -183,8 +183,9 @@ if (!existing) {
   <p class="test"><b>Tested:</b> a missing signature header, a forged payload, and that
   verification receives the raw bytes — whitespace included — rather than a re-serialised
   object.</p>
-  <p>Debugging a failing signature right now? <a href="./stripe-signature-debugger.html">Paste
-  it into the checker</a> — it computes the same HMAC in your browser and tells you which part
+  <p>Want to POST a signed event at your own handler without the Stripe CLI?
+  <a href="./test-stripe-webhook-locally.html">Here is how</a>. Debugging a failing signature
+  right now? <a href="./stripe-signature-debugger.html">Paste it into the checker</a> — it computes the same HMAC in your browser and tells you which part
   doesn’t line up. Nothing is uploaded.</p>
 </section>
 
