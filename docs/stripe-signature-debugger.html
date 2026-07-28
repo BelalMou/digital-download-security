@@ -107,14 +107,17 @@ footer a{color:var(--ink-2)}
 
 <p class="eyebrow">Free tool</p>
 <h1>Why is my Stripe webhook signature failing?</h1>
-<p class="lede">Paste the three things <code>constructEvent</code> takes. This computes the same
-HMAC Stripe does and tells you which part doesn’t line up — usually the body, not the secret.</p>
+<p class="lede">A Stripe webhook signature debugger that runs in your browser. Paste the three
+things <code>constructEvent</code> takes and it computes the same HMAC Stripe does, then tells you
+which part doesn’t line up — usually the body, not the secret. You can also
+<a href="#generate">generate a signed <code>curl</code> command</a> to test a handler locally.</p>
 
 <p class="privacy"><b>Nothing leaves your browser.</b> The HMAC is computed locally with the Web
 Crypto API. There is no server, no analytics, no network request. View source, or
 <a href="https://github.com/BelalMou/digital-download-security">read it on GitHub</a> — it’s one
 file.</p>
 
+<h2 style="font-size:20px;margin:0 0 14px">Verify a Stripe webhook signature online</h2>
 <form id="f">
   <div>
     <label for="payload">Raw request body
