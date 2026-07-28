@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stripe webhook signature debugger — why constructEvent is failing</title>
-<meta name="description" content="Paste your raw payload, Stripe-Signature header and webhook secret. Computes the HMAC in your browser and tells you exactly why signature verification fails. Nothing is uploaded.">
+<title>Stripe webhook signature debugger &amp; test fixture builder</title>
+<meta name="description" content="Find out why Stripe's constructEvent rejects your signature, or build a signed curl command with a realistic event payload to test your webhook handler locally. Runs entirely in the browser; nothing is uploaded.">
 <link rel="canonical" href="https://belalmou.github.io/digital-download-security/stripe-signature-debugger.html">
 <meta name="robots" content="index, follow">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Stripe webhook signature debugger">
-<meta property="og:description" content="Find out exactly why constructEvent throws 'No signatures found matching the expected signature'. Runs entirely in your browser.">
+<meta property="og:description" content="Diagnose a failing Stripe signature, or generate a signed curl command with a realistic event payload to test your handler. Entirely client-side.">
 <meta property="og:url" content="https://belalmou.github.io/digital-download-security/stripe-signature-debugger.html">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#128273;</text></svg>">
@@ -141,15 +141,36 @@ file.</p>
 
 
 <div class="notes" id="generate">
-  <h2>Or generate a valid signature</h2>
-  <p>Writing a test for your webhook handler? You need a payload signed with your test
-  secret. Paste both and get a <code>Stripe-Signature</code> header you can send.</p>
+  <h2>Or build a signed test request</h2>
+  <p>Writing a test for your webhook handler? Pick an event, and this builds a realistic
+  payload signed with your test secret — as a <code>curl</code> command you can paste
+  straight into a terminal.</p>
   <form id="g">
+    <div>
+      <label for="gevent">Event type
+        <span>Fills the payload with a realistic example. Edit it freely afterwards.</span>
+      </label>
+      <select id="gevent">
+        <option value="">— custom / leave payload as-is —</option>
+        <option value="checkout.session.completed">checkout.session.completed</option>
+        <option value="charge.refunded">charge.refunded (full refund)</option>
+        <option value="charge.refunded.partial">charge.refunded (partial)</option>
+        <option value="charge.dispute.created">charge.dispute.created</option>
+        <option value="payment_intent.succeeded">payment_intent.succeeded</option>
+        <option value="invoice.payment_failed">invoice.payment_failed</option>
+      </select>
+    </div>
+    <div>
+      <label for="gurl">Your endpoint
+        <span>Used to build the curl command. Nothing is sent from this page.</span>
+      </label>
+      <input id="gurl" type="text" spellcheck="false" value="http://localhost:3000/api/webhooks/stripe">
+    </div>
     <div>
       <label for="gpayload">Payload to sign
         <span>Whatever body your test will POST.</span>
       </label>
-      <textarea id="gpayload" rows="4" spellcheck="false" placeholder='{"id":"evt_test","type":"checkout.session.completed"}'></textarea>
+      <textarea id="gpayload" rows="8" spellcheck="false" placeholder='{"id":"evt_test","type":"checkout.session.completed"}'></textarea>
     </div>
     <div>
       <label for="gsecret">Signing secret
@@ -157,7 +178,7 @@ file.</p>
       </label>
       <input id="gsecret" type="text" spellcheck="false" placeholder="whsec_...">
     </div>
-    <button type="submit">Generate header</button>
+    <button type="submit">Build signed request</button>
   </form>
   <div class="result" id="gout"></div>
 </div>
@@ -294,14 +315,87 @@ $("f").addEventListener("submit", async (e) => {
   ], kv);
 });
 
+
+const now = () => Math.floor(Date.now() / 1000);
+const TEMPLATES = {
+  "checkout.session.completed": () => ({
+    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
+    object: "event", type: "checkout.session.completed", created: now(),
+    data: { object: {
+      id: "cs_test_" + Math.random().toString(36).slice(2, 12),
+      object: "checkout.session", amount_total: 3900, currency: "usd",
+      payment_intent: "pi_test_" + Math.random().toString(36).slice(2, 12),
+      payment_status: "paid", status: "complete",
+      customer_details: { email: "buyer@example.com" },
+      metadata: { assetId: "asset_123", buyerId: "user_456" }
+    }}
+  }),
+  "charge.refunded": () => ({
+    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
+    object: "event", type: "charge.refunded", created: now(),
+    data: { object: {
+      id: "ch_test_" + Math.random().toString(36).slice(2, 12),
+      object: "charge", amount: 3900, amount_refunded: 3900, currency: "usd",
+      payment_intent: "pi_test_" + Math.random().toString(36).slice(2, 12),
+      refunded: true, paid: true
+    }}
+  }),
+  "charge.refunded.partial": () => ({
+    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
+    object: "event", type: "charge.refunded", created: now(),
+    data: { object: {
+      id: "ch_test_" + Math.random().toString(36).slice(2, 12),
+      object: "charge", amount: 3900, amount_refunded: 1000, currency: "usd",
+      payment_intent: "pi_test_" + Math.random().toString(36).slice(2, 12),
+      refunded: false, paid: true
+    }}
+  }),
+  "charge.dispute.created": () => ({
+    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
+    object: "event", type: "charge.dispute.created", created: now(),
+    data: { object: {
+      id: "dp_test_" + Math.random().toString(36).slice(2, 12),
+      object: "dispute", amount: 3900, currency: "usd",
+      charge: "ch_test_" + Math.random().toString(36).slice(2, 12),
+      payment_intent: "pi_test_" + Math.random().toString(36).slice(2, 12),
+      reason: "fraudulent", status: "warning_needs_response"
+    }}
+  }),
+  "payment_intent.succeeded": () => ({
+    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
+    object: "event", type: "payment_intent.succeeded", created: now(),
+    data: { object: {
+      id: "pi_test_" + Math.random().toString(36).slice(2, 12),
+      object: "payment_intent", amount: 3900, amount_received: 3900,
+      currency: "usd", status: "succeeded"
+    }}
+  }),
+  "invoice.payment_failed": () => ({
+    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
+    object: "event", type: "invoice.payment_failed", created: now(),
+    data: { object: {
+      id: "in_test_" + Math.random().toString(36).slice(2, 12),
+      object: "invoice", amount_due: 3900, currency: "usd",
+      attempt_count: 2, status: "open",
+      customer_email: "buyer@example.com"
+    }}
+  })
+};
+
+$("gevent").addEventListener("change", (e) => {
+  const t = TEMPLATES[e.target.value];
+  if (t) $("gpayload").value = JSON.stringify(t(), null, 2);
+});
+
 $("g").addEventListener("submit", async (e) => {
   e.preventDefault();
   const payload = $("gpayload").value;
   const secret = $("gsecret").value.trim();
+  const url = $("gurl").value.trim() || "http://localhost:3000/api/webhooks/stripe";
   const out = $("gout");
   if (!payload || !secret) {
     out.className = "result show warn";
-    out.innerHTML = "<h2>Both fields are needed</h2>";
+    out.innerHTML = "<h2>Pick an event and enter a signing secret</h2>";
     return;
   }
   if (secret.startsWith("sk_") || secret.startsWith("rk_")) {
@@ -312,11 +406,23 @@ $("g").addEventListener("submit", async (e) => {
   const t = Math.floor(Date.now() / 1000);
   const sig = await hmacHex(secret, t + "." + payload);
   const header = "t=" + t + ",v1=" + sig;
+  // Compact the JSON so the curl body is one line and matches what gets signed.
+  const oneLine = payload.replace(/\n\s*/g, "");
+  const sigOneLine = await hmacHex(secret, t + "." + oneLine);
+  const curl =
+    "curl -X POST " + url + " \\\n" +
+    "  -H 'Content-Type: application/json' \\\n" +
+    "  -H 'Stripe-Signature: t=" + t + ",v1=" + sigOneLine + "' \\\n" +
+    "  -d '" + oneLine.replace(/'/g, "'\\''") + "'";
   out.className = "result show pass";
   out.innerHTML =
-    "<h2>Header generated</h2>" +
-    '<div class="kv"><div><b>Stripe-Signature</b><span>' + header + "</span></div></div>" +
-    "<ul><li>Valid for 5 minutes — Stripe's default replay tolerance. Generate a fresh one per test run, or your suite will start failing once it is stale.</li></ul>";
+    "<h2>Signed request ready</h2>" +
+    "<p style='margin:0 0 10px;font-size:14.5px'>Paste this at a terminal to POST a signed event at your handler.</p>" +
+    "<pre style='margin:0 0 12px;white-space:pre-wrap;word-break:break-all'><code>" +
+    curl.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</code></pre>" +
+    '<div class="kv"><div><b>Stripe-Signature</b><span>' + header.slice(0, 46) + "…</span></div></div>" +
+    "<ul><li>Valid for 5 minutes — Stripe's default replay tolerance. Regenerate per run, or your suite will start failing once it goes stale.</li>" +
+    "<li>The signature covers the <em>exact</em> bytes in <code>-d</code>. Reformat the body and it stops matching — which is the whole point of leak #2.</li></ul>";
 });
 
 </script>
