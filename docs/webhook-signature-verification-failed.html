@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webhook signature verification failed — the same four causes, on every provider</title>
+<meta name="description" content="Stripe, GitHub, Shopify and Slack all reject signatures for the same four reasons: a re-serialised body, the wrong secret, the wrong encoding, or a stale timestamp. What each provider actually signs, side by side.">
+<link rel="canonical" href="https://belalmou.github.io/digital-download-security/webhook-signature-verification-failed.html">
+<meta name="robots" content="index, follow, max-snippet:-1">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Webhook signature verification failed — the same four causes, every provider">
+<meta property="og:description" content="What Stripe, GitHub, Shopify and Slack each actually sign, and why your HMAC doesn't match.">
+<meta property="og:url" content="https://belalmou.github.io/digital-download-security/webhook-signature-verification-failed.html">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#128273;</text></svg>">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+ "headline":"Webhook signature verification failed — the same four causes, on every provider",
+ "description":"Why Stripe, GitHub, Shopify and Slack reject webhook signatures, and what each one actually signs.",
+ "author":{"@type":"Person","name":"Belal Moussa","url":"https://github.com/BelalMou"},
+ "datePublished":"2026-07-29","license":"https://opensource.org/licenses/MIT",
+ "mainEntityOfPage":{"@type":"WebPage","@id":"https://belalmou.github.io/digital-download-security/webhook-signature-verification-failed.html"}}
+</script>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#FBFBF9; --panel:#FFFFFF; --sunk:#F3F4F0;
+  --ink:#16181A; --ink-2:#4E545A; --ink-3:#818A91;
+  --rule:#E2E4DE; --rule-2:#CFD3CB;
+  --acct:#0E7A55; --acct-soft:#E4F2EB;
+  --bad:#A3342B; --bad-soft:#F8EAE8;
+  --code-bg:#15181B; --code-ink:#E6E9E4;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono",Menlo,Consolas,monospace;
+  --serif:"Iowan Old Style",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){
+  color-scheme:dark;
+  --bg:#101214; --panel:#171A1D; --sunk:#14171A;
+  --ink:#EDEFF1; --ink-2:#A2ABB2; --ink-3:#737D85;
+  --rule:#252A2E; --rule-2:#333A3F;
+  --acct:#4FBE8E; --acct-soft:#12291F;
+  --bad:#E8827A; --bad-soft:#2A1917;
+  --code-bg:#0B0D0F; --code-ink:#E6E9E4;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#101214; --panel:#171A1D; --sunk:#14171A;
+  --ink:#EDEFF1; --ink-2:#A2ABB2; --ink-3:#737D85;
+  --rule:#252A2E; --rule-2:#333A3F;
+  --acct:#4FBE8E; --acct-soft:#12291F;
+  --bad:#E8827A; --bad-soft:#2A1917;
+  --code-bg:#0B0D0F; --code-ink:#E6E9E4;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:760px;margin:0 auto;padding:clamp(30px,6vw,68px) clamp(20px,5vw,28px) 90px}
+h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.018em}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(30px,5.4vw,42px);line-height:1.1;margin-bottom:18px}
+h2{font-size:clamp(21px,3.4vw,27px);margin:44px 0 15px}
+h3{font-size:18px;margin:28px 0 10px}
+p{margin:0 0 19px}
+a{color:var(--acct)}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 13px}
+.standfirst{font-size:clamp(17px,2.3vw,19px);color:var(--ink-2);max-width:62ch;margin-bottom:32px}
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:11px;padding:16px 18px;
+  overflow-x:auto;margin:0 0 19px;font-size:13.5px;line-height:1.6;border:1px solid transparent}
+pre.right{border-color:var(--acct)}
+pre.wrong{border-color:var(--bad)}
+pre code{font-family:var(--mono)}
+code:not(pre code){font-family:var(--mono);font-size:.88em;background:var(--sunk);
+  border:1px solid var(--rule);border-radius:5px;padding:1px 5px}
+ul,ol{margin:0 0 19px;padding-left:22px}
+li{margin-bottom:9px}
+li::marker{color:var(--ink-3)}
+.callout{background:var(--acct-soft);border:1px solid var(--acct);border-radius:11px;
+  padding:16px 19px;margin:0 0 24px;font-size:15px}
+.callout b{display:block;margin-bottom:5px}
+.tablewrap{overflow-x:auto;margin:0 0 22px}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:560px}
+th,td{text-align:left;padding:10px 11px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:500}
+td code{white-space:nowrap}
+footer{margin-top:48px;padding-top:22px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+footer a{color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="eyebrow">Payments &amp; integrations</p>
+<h1>“Webhook signature verification failed”</h1>
+<p class="standfirst">Stripe, GitHub, Shopify and Slack all reject signatures for the same four
+reasons. The provider names differ, the fix rarely does — and in almost every case the secret is
+fine and the <em>body</em> is the problem.</p>
+
+<h2>What each provider actually signs</h2>
+<p>This table is the whole article. Nearly every failure is a mismatch between one of these
+columns and what your code does.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Provider</th><th>Header</th><th>Signed string</th><th>Encoding</th><th>Replay window</th></tr></thead>
+  <tbody>
+    <tr><td><b>Stripe</b></td><td><code>Stripe-Signature</code></td>
+        <td><code>&lt;t&gt;.&lt;body&gt;</code></td><td>hex, after <code>v1=</code></td><td>5 min</td></tr>
+    <tr><td><b>GitHub</b></td><td><code>X-Hub-Signature-256</code></td>
+        <td>the raw body</td><td>hex, after <code>sha256=</code></td><td>none</td></tr>
+    <tr><td><b>Shopify</b></td><td><code>X-Shopify-Hmac-Sha256</code></td>
+        <td>the raw body</td><td><b>base64</b>, no prefix</td><td>none</td></tr>
+    <tr><td><b>Slack</b></td><td><code>X-Slack-Signature</code></td>
+        <td><code>v0:&lt;t&gt;:&lt;body&gt;</code></td><td>hex, after <code>v0=</code></td><td>5 min</td></tr>
+  </tbody>
+</table>
+</div>
+<p>All four are HMAC-SHA256. That similarity is the trap: code copied from a Stripe tutorial
+looks right against a Shopify webhook and will never match.</p>
+
+<h2>Cause 1 — you signed a re-serialised body</h2>
+<p>By far the most common. Your framework parsed the JSON, and you passed the parsed object (or
+a re-stringified version of it) to the verifier. Key order and whitespace changed, so the bytes
+differ, so the HMAC differs.</p>
+<span></span>
+<pre class="wrong"><code>// wrong — req.body has already been parsed and re-serialised
+verify(JSON.stringify(req.body), signature, secret);</code></pre>
+<pre class="right"><code>// Next.js route handler
+const raw = await request.text();
+
+// Express
+app.post("/webhook", express.raw({ type: "application/json" }), handler);
+
+// NestJS — rawBody is undefined unless you ask for it
+NestFactory.create(AppModule, { rawBody: true });</code></pre>
+<p>A quick diagnostic: log <code>body.length</code> at the very top of your handler and compare
+it with the <code>Content-Length</code> header. If they differ, something between the socket and
+your code has rewritten the payload.</p>
+
+<h2>Cause 2 — the wrong secret, or the right secret from the wrong place</h2>
+<ul>
+  <li><b>Stripe:</b> the signing secret is <em>per endpoint</em> and starts with
+  <code>whsec_</code>. The one printed by <code>stripe listen</code> is not the one your deployed
+  endpoint uses — mixing them up is the classic. An <code>sk_</code> API key will never verify.</li>
+  <li><b>Shopify:</b> it's the app's <em>API secret key</em>, not the access token.</li>
+  <li><b>Slack:</b> the <em>signing secret</em>, not the bot token, not the verification token.</li>
+  <li><b>GitHub:</b> whatever string you typed into the webhook's secret box — with no trailing
+  newline, which is easy to acquire if you piped it from a file.</li>
+</ul>
+
+<h2>Cause 3 — the wrong encoding</h2>
+<p>Shopify's signature is <b>base64</b>. Everyone else's is hex. Comparing a base64 digest with
+a hex one fails every time and looks exactly like a wrong secret.</p>
+<pre class="right"><code>// Shopify
+crypto.createHmac("sha256", secret).update(raw).digest("base64");
+// Stripe / GitHub / Slack
+crypto.createHmac("sha256", secret).update(signedString).digest("hex");</code></pre>
+<p>When you do compare, use a timing-safe comparison of equal-length buffers —
+<code>crypto.timingSafeEqual</code> throws if the lengths differ, so check length first.</p>
+
+<h2>Cause 4 — a valid signature that's simply too old</h2>
+<p>Stripe and Slack both sign a timestamp and enforce a five-minute window. A replayed request —
+a captured payload, a fixture in an old test — can have a perfectly correct HMAC and still be
+rejected. If your signature matches but verification fails anyway, check the age before you
+change anything else.</p>
+
+<div class="callout">
+  <b>Check it in ten seconds</b>
+  Paste the body, the header and the secret into the
+  <a href="./stripe-signature-debugger.html">signature debugger</a> — pick your provider and it
+  reports which of the four is wrong. It runs entirely in your browser; the secret never leaves
+  the page. Same thing from a terminal:
+  <code>npx github:BelalMou/digital-download-security verify --provider shopify …</code>
+</div>
+
+<h2>Once it verifies, you're not finished</h2>
+<p>A verified signature only proves the request is genuine. It says nothing about what your
+handler then does with it — and the expensive bugs live there: granting a purchase twice because
+the provider redelivered, or leaving a download accessible after a refund. Those, and two others,
+are written up <a href="./">here with runnable tests</a>.</p>
+
+<footer>
+  MIT licensed ·
+  <a href="https://github.com/BelalMou/digital-download-security">source and tests</a> ·
+  <a href="./stripe-signature-debugger.html">signature debugger</a>
+</footer>
+</div>
+</body>
+</html>

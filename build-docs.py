@@ -89,6 +89,12 @@ with open(os.path.join(BASE, "docs", "sitemap.xml"), "w", encoding="utf-8") as f
     <priority>1.0</priority>
   </url>
   <url>
+    <loc>{SITE}webhook-signature-verification-failed.html</loc>
+    <lastmod>{datetime.date.today().isoformat()}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
     <loc>{SITE}test-stripe-webhook-locally.html</loc>
     <lastmod>{datetime.date.today().isoformat()}</lastmod>
     <changefreq>monthly</changefreq>
