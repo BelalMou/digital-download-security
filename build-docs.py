@@ -9,6 +9,7 @@ import re, os, datetime
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SITE = "https://belalmou.github.io/digital-download-security/"
+INDEXNOW_KEY = "7a5f60f8045b658212b278ff2831ec9c"  # authenticates us via a file hosted at SITE+key+".txt"
 REPO = "https://github.com/BelalMou/digital-download-security"
 
 TITLE = "Four ways a digital-download store leaks money"
@@ -117,5 +118,9 @@ with open(os.path.join(BASE, "docs", "sitemap.xml"), "w", encoding="utf-8") as f
 
 # Stops Jekyll from touching the files.
 open(os.path.join(BASE, "docs", ".nojekyll"), "w").close()
+
+# IndexNow ownership proof: the file's name and contents are both the key.
+with open(os.path.join(BASE, "docs", INDEXNOW_KEY + ".txt"), "w") as f:
+    f.write(INDEXNOW_KEY + "\n")
 
 print(f"built docs/index.html ({len(doc):,} bytes) + robots.txt + sitemap.xml + .nojekyll")
