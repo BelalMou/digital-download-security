@@ -110,6 +110,89 @@ export function sign(payload, secret, timestamp = now()) {
   return { header: `t=${timestamp},v1=${hmac(secret, timestamp, payload)}`, timestamp };
 }
 
+
+// ── audit ───────────────────────────────────────────────────────────────────
+/**
+ * Runs the adversarial cases against YOUR OWN endpoint and reports what it does.
+ *
+ * Every request is an ordinary webhook POST — nothing here is an attack, and it
+ * needs your signing secret to be meaningful. Point it at an endpoint you control
+ * (localhost or your own staging), not at somebody else's service.
+ */
+async function post(url, raw, header) {
+  const headers = { "content-type": "application/json" };
+  if (header) headers["stripe-signature"] = header;
+  try {
+    const res = await fetch(url, { method: "POST", headers, body: raw });
+    return { status: res.status, body: (await res.text()).slice(0, 80).replace(/\s+/g, " ") };
+  } catch (e) {
+    return { status: 0, body: e.message };
+  }
+}
+
+async function auditEndpoint(url, secret) {
+  const raw = JSON.stringify(EVENTS["checkout.session.completed"]());
+  const results = [];
+  // status 0 means the request never landed. That is an unreachable endpoint, not a
+  // security verdict — reporting it as "rejected" would be a dangerously flattering lie.
+  const rejects = (s) => s >= 400 && s < 500;
+  const unreachable = (s) => s === 0;
+
+  const probe = await post(url, raw, sign(raw, secret).header);
+  if (unreachable(probe.status)) {
+    return [{ name: "Endpoint reachable", pass: false, fatal: true,
+      detail: probe.body,
+      why: "Nothing could be sent, so no check below would mean anything. " +
+           "Is the server running and the URL right?" }];
+  }
+
+  // 1. no signature at all
+  let r = await post(url, raw, null);
+  results.push({ name: "Rejects a request with no signature header",
+    pass: rejects(r.status), detail: `HTTP ${r.status}`,
+    why: "Without this, anyone who finds the URL can grant themselves purchases." });
+
+  // 2. forged signature
+  r = await post(url, raw, `t=${now()},v1=${"0".repeat(64)}`);
+  results.push({ name: "Rejects a forged signature",
+    pass: rejects(r.status), detail: `HTTP ${r.status}`,
+    why: "A wrong v1 must never fulfil. If this passes, verification is not happening." });
+
+  // 3. valid signature, but body altered after signing
+  const { header: goodHdr } = sign(raw, secret);
+  r = await post(url, raw + " ", goodHdr);
+  results.push({ name: "Rejects a body that changed after signing",
+    pass: rejects(r.status), detail: `HTTP ${r.status}`,
+    why: "Proves the signature is checked against the raw bytes received." });
+
+  // 4. valid signature but stale timestamp
+  const stale = sign(raw, secret, now() - 3600).header;
+  r = await post(url, raw, stale);
+  results.push({ name: "Rejects a replayed (stale) timestamp",
+    pass: rejects(r.status), detail: `HTTP ${r.status}`,
+    why: `Stripe enforces a ${TOLERANCE}s window. Accepting old events allows replay.`,
+    soft: true });
+
+  // 5. a genuine event should be accepted
+  const fresh = sign(raw, secret).header;
+  r = await post(url, raw, fresh);
+  const accepted = r.status >= 200 && r.status < 300;
+  results.push({ name: "Accepts a correctly signed event",
+    pass: accepted, detail: `HTTP ${r.status} ${r.body}`,
+    why: "If this fails, the secret or the raw-body handling is wrong." });
+
+  // 6. redelivery — identical request twice
+  if (accepted) {
+    const again = await post(url, raw, fresh);
+    results.push({ name: "Survives a redelivery (same event twice)",
+      pass: again.status >= 200 && again.status < 300, detail: `HTTP ${again.status} ${again.body}`,
+      why: "Stripe delivers at least once. A 500 here means Stripe will retry forever. " +
+           "This cannot see your database — check that only ONE purchase was granted." });
+  }
+
+  return results;
+}
+
 // ── cli ─────────────────────────────────────────────────────────────────────
 function args(argv) {
   const out = { _: [] };
@@ -127,6 +210,8 @@ const USAGE = `stripe-sig — verify, sign and send Stripe webhook events offlin
   sign    --secret whsec_...  [--event <type> | --file body.json | --body '{...}']
   send    --secret whsec_...  --url <endpoint>    [--event <type> | --file body.json]
           [--times N]   send the SAME signed request N times, to test idempotency
+  audit   --secret whsec_...  --url <endpoint>
+          run the adversarial cases against your OWN endpoint and score it
 
   events: ${Object.keys(EVENTS).join(", ")}
 
@@ -202,6 +287,27 @@ async function main() {
     if (times > 1) {
       console.error(`\n# sent the identical event ${times}×. A correct handler grants once and ` +
                     `returns 200 every time.\n# https://belalmou.github.io/digital-download-security/stripe-webhook-fired-twice.html`);
+    }
+    return;
+  }
+
+  if (cmd === "audit") {
+    const secret = needSecret(a);
+    if (!a.url) { console.error("missing --url (the endpoint you want to audit)"); process.exit(2); }
+    console.error(`auditing ${a.url}\n(only run this against an endpoint you control)\n`);
+    const results = await auditEndpoint(a.url, secret);
+    let hard = 0;
+    for (const r of results) {
+      const mark = r.pass ? "PASS" : (r.fatal ? "STOP" : r.soft ? "WARN" : "FAIL");
+      if (!r.pass && !r.soft) hard++;
+      console.log(`  [${mark}] ${r.name}  (${r.detail})`);
+      if (!r.pass) console.log(`         ${r.why}`);
+    }
+    const passed = results.filter((r) => r.pass).length;
+    console.log(`\n  ${passed}/${results.length} checks passed`);
+    if (hard) {
+      console.log(`  ${hard} of them matter: https://belalmou.github.io/digital-download-security/`);
+      process.exit(1);
     }
     return;
   }

@@ -14,6 +14,10 @@ Verify, sign and send Stripe webhook events without a Stripe login, a tunnel, or
 account. No install:
 
 ```bash
+# audit your own endpoint: runs every adversarial case and scores it
+npx github:BelalMou/digital-download-security audit \
+  --secret whsec_... --url http://localhost:3000/api/webhooks/stripe
+
 # does my handler double-grant on a redelivery? send the identical event twice
 npx github:BelalMou/digital-download-security send \
   --secret whsec_... --event checkout.session.completed \
@@ -26,6 +30,12 @@ npx github:BelalMou/digital-download-security verify \
 # build a signed header for a test
 npx github:BelalMou/digital-download-security sign --secret whsec_... --event charge.refunded
 ```
+
+`audit` sends an unsigned request, a forged signature, a body altered after signing,
+a replayed timestamp, a genuine event, and then that same event twice — and reports
+which your handler gets wrong. It exits non-zero on a real failure, so it works in CI.
+Every request is an ordinary webhook POST and it needs your signing secret to mean
+anything; point it at an endpoint you control, not at somebody else's service.
 
 Events available: `checkout.session.completed`, `charge.refunded`,
 `charge.dispute.created`, `payment_intent.succeeded`, `invoice.payment_failed` — and
