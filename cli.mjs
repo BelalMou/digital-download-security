@@ -12,6 +12,8 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const TOLERANCE = 300; // Stripe's default replay window, in seconds
 
@@ -208,7 +210,20 @@ async function main() {
   process.exit(2);
 }
 
-// Only run the CLI when executed directly, so the functions stay importable in tests.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run the CLI only when this file is the entrypoint, so the exports stay importable
+// in tests. Resolve both sides through realpath: npx and npm invoke a bin through a
+// SYMLINK, so a naive `import.meta.url === file://${process.argv[1]}` comparison is
+// false and the CLI silently does nothing.
+function isEntrypoint() {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  try {
+    return fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(path.resolve(invoked));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint()) {
   main().catch((e) => { console.error(e.message); process.exit(1); });
 }
