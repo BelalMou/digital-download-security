@@ -45,6 +45,23 @@ it refuses `sk_`/`rk_` keys so you can't paste an API key by mistake.
 There's also a [browser version](https://belalmou.github.io/digital-download-security/stripe-signature-debugger.html)
 if you'd rather not run anything.
 
+## In CI
+
+The audit is also a GitHub Action, so a regression in your webhook handling fails the
+build rather than surfacing as a chargeback:
+
+```yaml
+- name: Audit the Stripe webhook endpoint
+  uses: BelalMou/digital-download-security@v1
+  with:
+    url: http://localhost:3000/api/webhooks/stripe   # start your app in an earlier step
+    secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+    fail-on-warn: false
+```
+
+Pass the signing secret from a repository secret, never inline. The report is written
+to the job summary, and the step exits non-zero on a real defect.
+
 ---
 
 Each one below comes with a **runnable test that fails against the naive

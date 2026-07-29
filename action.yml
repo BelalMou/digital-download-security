@@ -1,0 +1,79 @@
+name: "Stripe Webhook Audit"
+description: "Score a Stripe webhook endpoint against the adversarial cases — unsigned, forged, tampered body, replayed timestamp, and a redelivery. Fails the build on a real defect."
+author: "Belal Moussa"
+
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  url:
+    description: "The webhook endpoint to audit. Point this at a service you control (a locally-started server, or your own staging)."
+    required: true
+  secret:
+    description: "The whsec_ signing secret for that endpoint. Pass it from a repository secret, never inline."
+    required: true
+  fail-on-warn:
+    description: "Treat WARN results (e.g. a replayed timestamp being accepted) as failures too."
+    required: false
+    default: "false"
+
+outputs:
+  passed:
+    description: "Number of checks that passed."
+    value: ${{ steps.audit.outputs.passed }}
+  total:
+    description: "Total number of checks run."
+    value: ${{ steps.audit.outputs.total }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check out the audit tool
+      uses: actions/checkout@v4
+      with:
+        repository: BelalMou/digital-download-security
+        ref: v1
+        path: .stripe-webhook-audit
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Run the audit
+      id: audit
+      shell: bash
+      env:
+        AUDIT_URL: ${{ inputs.url }}
+        AUDIT_SECRET: ${{ inputs.secret }}
+        FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
+      run: |
+        set -o pipefail
+        # Tee so the report is visible in the log even when the audit exits non-zero.
+        node .stripe-webhook-audit/cli.mjs audit \
+          --secret "$AUDIT_SECRET" --url "$AUDIT_URL" 2>&1 | tee audit.log || AUDIT_FAILED=1
+
+        # "  N/M checks passed"
+        SUMMARY=$(grep -oE '[0-9]+/[0-9]+ checks passed' audit.log | tail -1 || true)
+        PASSED=${SUMMARY%%/*}
+        TOTAL=$(echo "$SUMMARY" | sed -E 's|.*/([0-9]+) checks passed|\1|')
+        echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
+        echo "total=${TOTAL:-0}"  >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### Stripe webhook audit"
+          echo ""
+          echo '```'
+          cat audit.log
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "${FAIL_ON_WARN}" = "true" ] && grep -q '\[WARN\]' audit.log; then
+          echo "::error::A warning was treated as a failure because fail-on-warn is set."
+          exit 1
+        fi
+        if [ -n "${AUDIT_FAILED:-}" ]; then
+          echo "::error::The webhook endpoint failed one or more security checks."
+          exit 1
+        fi
