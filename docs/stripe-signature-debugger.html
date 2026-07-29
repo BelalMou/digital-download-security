@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stripe webhook signature debugger &amp; test fixture builder</title>
-<meta name="description" content="Find out why Stripe's constructEvent rejects your signature, or build a signed curl command with a realistic event payload to test your webhook handler locally. Runs entirely in the browser; nothing is uploaded.">
+<title>Webhook signature debugger — Stripe, GitHub, Shopify, Slack</title>
+<meta name="description" content="Find out why a webhook signature is rejected — Stripe, GitHub, Shopify or Slack — or build a signed curl command to test your handler locally. Runs entirely in the browser; no signup, nothing uploaded.">
 <link rel="canonical" href="https://belalmou.github.io/digital-download-security/stripe-signature-debugger.html">
 <meta name="robots" content="index, follow">
 <meta property="og:type" content="website">
@@ -106,8 +106,8 @@ footer a{color:var(--ink-2)}
 <div class="wrap">
 
 <p class="eyebrow">Free tool</p>
-<h1>Why is my Stripe webhook signature failing?</h1>
-<p class="lede">A Stripe webhook signature debugger that runs in your browser. Paste the three
+<h1>Why is my webhook signature failing?</h1>
+<p class="lede">A webhook signature debugger for Stripe, GitHub, Shopify and Slack, running entirely in your browser. Paste the three
 things <code>constructEvent</code> takes and it computes the same HMAC Stripe does, then tells you
 which part doesn’t line up — usually the body, not the secret. You can also
 <a href="#generate">generate a signed <code>curl</code> command</a> to test a handler locally.</p>
@@ -117,8 +117,19 @@ Crypto API. There is no server, no analytics, no network request. View source, o
 <a href="https://github.com/BelalMou/digital-download-security">read it on GitHub</a> — it’s one
 file.</p>
 
-<h2 style="font-size:20px;margin:0 0 14px">Verify a Stripe webhook signature online</h2>
+<h2 style="font-size:20px;margin:0 0 14px">Verify a webhook signature online</h2>
 <form id="f">
+  <div>
+    <label for="provider">Provider
+      <span>Each one signs something different. That difference is usually the bug.</span>
+    </label>
+    <select id="provider">
+      <option value="stripe">Stripe — Stripe-Signature: t=…,v1=… over &lt;t&gt;.&lt;body&gt;</option>
+      <option value="github">GitHub — X-Hub-Signature-256: sha256=… over the raw body</option>
+      <option value="shopify">Shopify — X-Shopify-Hmac-Sha256: base64 of the raw body</option>
+      <option value="slack">Slack — X-Slack-Signature: v0=… over v0:&lt;ts&gt;:&lt;body&gt;</option>
+    </select>
+  </div>
   <div>
     <label for="payload">Raw request body
       <span>Exactly the bytes you received. If you did JSON.parse then re-stringified, that’s very likely your bug.</span>
@@ -130,6 +141,12 @@ file.</p>
       <span>The whole header value, e.g. t=1699999999,v1=abc123...</span>
     </label>
     <textarea id="header" rows="2" spellcheck="false" placeholder="t=1699999999,v1=5257a869e7..."></textarea>
+  </div>
+  <div id="tsrow" style="display:none">
+    <label for="ts">Request timestamp
+      <span>Slack sends this separately, in the <code>X-Slack-Request-Timestamp</code> header. It is part of what gets signed, so verification is impossible without it.</span>
+    </label>
+    <input id="ts" type="text" spellcheck="false" placeholder="1699999999">
   </div>
   <div>
     <label for="secret">Webhook signing secret
@@ -232,6 +249,28 @@ file.</p>
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
 
+const PROVIDERS = {
+  stripe:  { signed: (b, t) => t + "." + b, enc: "hex",    tol: 300,
+             extract: (h) => ({ t: (/(?:^|,)\s*t=(\d+)/.exec(h) || [])[1] || null,
+                                sigs: [...String(h).matchAll(/v1=([a-f0-9]+)/g)].map(m => m[1]) }),
+             label: "Stripe-Signature" },
+  github:  { signed: (b) => b, enc: "hex", tol: null,
+             extract: (h) => ({ t: null, sigs: [String(h).replace(/^sha256=/, "").trim()] }),
+             label: "X-Hub-Signature-256" },
+  shopify: { signed: (b) => b, enc: "base64", tol: null,
+             extract: (h) => ({ t: null, sigs: [String(h).trim()] }),
+             label: "X-Shopify-Hmac-Sha256" },
+  slack:   { signed: (b, t) => "v0:" + t + ":" + b, enc: "hex", tol: 300, needsTs: true,
+             extract: (h) => ({ t: null, sigs: [String(h).replace(/^v0=/, "").trim()] }),
+             label: "X-Slack-Signature" },
+};
+
+// Show the timestamp field only where the provider needs one it can't parse itself.
+function syncTimestampField() {
+  const p = PROVIDERS[$("provider").value];
+  $("tsrow").style.display = p.needsTs ? "" : "none";
+}
+
 function parseHeader(h) {
   const out = { t: null, v1: [], v0: [], unknown: [] };
   h.trim().split(",").forEach((part) => {
@@ -246,12 +285,22 @@ function parseHeader(h) {
   return out;
 }
 
-async function hmacHex(secret, message) {
+async function hmacRaw(secret, message) {
   const key = await crypto.subtle.importKey(
     "raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
   );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(message)));
+}
+
+async function hmacHex(secret, message) {
+  const b = await hmacRaw(secret, message);
+  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+async function digest(secret, message, encoding) {
+  const b = await hmacRaw(secret, message);
+  if (encoding === "base64") return btoa(String.fromCharCode(...b));
+  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 function show(kind, title, points, kv) {
@@ -270,120 +319,65 @@ $("f").addEventListener("submit", async (e) => {
   const payload = $("payload").value;
   const headerRaw = $("header").value;
   const secret = $("secret").value.trim();
+  const provider = $("provider").value;
+  const P = PROVIDERS[provider];
 
   if (!payload || !headerRaw || !secret) {
     return show("warn", "Fill in all three fields", [
-      "The check needs the raw body, the full Stripe-Signature header, and the whsec_ secret."
+      "The check needs the raw body, the full signature header, and the signing secret."
     ]);
   }
 
-  const h = parseHeader(headerRaw);
+  let { t: parsedT, sigs } = P.extract(headerRaw);
+  if (P.needsTs) parsedT = $("ts").value.trim() || null;
   const problems = [];
-  if (!h.t) problems.push("No <code>t=</code> timestamp in the header — is this the whole header value?");
-  if (!h.v1.length) problems.push("No <code>v1=</code> signature in the header.");
-  if (!secret.startsWith("whsec_"))
-    problems.push("The secret doesn't start with <code>whsec_</code>. A signing secret is per-endpoint — an <code>sk_</code> API key will never verify.");
+  if (!sigs.length || !sigs[0]) problems.push(`No signature found. Paste the whole <code>${P.label}</code> value.`);
+  if (P.tol && !parsedT) {
+    problems.push(provider === "slack"
+      ? "Slack signs a timestamp from the <code>X-Slack-Request-Timestamp</code> header — fill in the timestamp field above."
+      : "No <code>t=</code> timestamp in the header — is this the whole header value?");
+  }
+  if (provider === "stripe" && !secret.startsWith("whsec_"))
+    problems.push("Stripe signing secrets start with <code>whsec_</code>. An <code>sk_</code> API key will never verify.");
   if (problems.length) return show("fail", "The inputs don't look right", problems);
 
-  const expected = await hmacHex(secret, h.t + "." + payload);
-  const match = h.v1.includes(expected);
-
-  const age = Math.floor(Date.now() / 1000) - Number(h.t);
-  const ageTxt = isFinite(age)
-    ? (Math.abs(age) < 300 ? age + "s (within tolerance)" : age + "s (outside the default 5-min window)")
-    : "unparseable";
+  const expected = await digest(secret, P.signed(payload, parsedT), P.enc);
+  const match = sigs.includes(expected);
+  const age = P.tol && parsedT ? Math.floor(Date.now() / 1000) - Number(parsedT) : null;
 
   const kv = {
-    "signed payload": "&lt;t&gt;.&lt;body&gt; — " + (h.t + "." + payload).length + " chars",
-    "expected v1": expected.slice(0, 32) + "…",
-    "header v1": h.v1[0].slice(0, 32) + "…",
-    "timestamp age": ageTxt,
+    "provider": provider + " (" + P.label + ")",
+    "signed string": P.tol ? "&lt;timestamp&gt; + body — " + P.signed(payload, parsedT).length + " chars"
+                           : "the raw body — " + payload.length + " chars",
+    "expected": expected.slice(0, 32) + "…",
+    "from header": String(sigs[0]).slice(0, 32) + "…",
   };
+  if (age !== null) kv["timestamp age"] = age + "s" + (Math.abs(age) < P.tol ? " (within tolerance)" : " (outside the window)");
 
-  if (match && Math.abs(age) < 300) {
+  if (match && (age === null || Math.abs(age) < P.tol)) {
     return show("pass", "✓ Signature is valid", [
-      "The HMAC matches and the timestamp is inside the tolerance window. If <code>constructEvent</code> still throws in your app, the body it receives differs from what you pasted here — log <code>body.length</code> at the top of the handler and compare."
+      "The HMAC matches" + (age !== null ? " and the timestamp is inside the tolerance window" : "") +
+      ". If your app still rejects it, the body it receives differs from what you pasted here — log the byte length at the top of the handler and compare."
     ], kv);
   }
   if (match) {
     return show("warn", "Signature matches, but the timestamp is stale", [
-      "The HMAC is correct, so your secret and body are right. Stripe also enforces a 5-minute replay window by default, which is why it still throws.",
-      "This is expected when replaying a captured request. In tests, pass a fresh timestamp or set <code>tolerance</code>."
+      "The HMAC is correct, so your secret and body are right. " + provider + " also enforces a " +
+      P.tol + "-second replay window, which is why it still fails.",
+      "Expected when replaying a captured request. In tests, use a fresh timestamp."
     ], kv);
   }
   return show("fail", "✗ Signature does not match", [
     "<b>Most likely: the body isn't byte-identical.</b> If your framework parsed the JSON and you re-serialised it, whitespace and key order changed. Read the raw text instead.",
-    "Next most likely: wrong secret. The <code>stripe listen</code> secret differs from your deployed endpoint's.",
+    "Next most likely: the wrong secret, or a secret from a different endpoint.",
+    provider === "shopify" ? "Shopify's signature is <b>base64</b>, not hex — make sure you're comparing like with like." :
+    provider === "github"  ? "GitHub signs the raw body with no timestamp — don't prepend one." :
     "Also possible: a proxy re-encoded the body, or a trailing newline was added or stripped."
   ], kv);
 });
 
-
-const now = () => Math.floor(Date.now() / 1000);
-const TEMPLATES = {
-  "checkout.session.completed": () => ({
-    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
-    object: "event", type: "checkout.session.completed", created: now(),
-    data: { object: {
-      id: "cs_test_" + Math.random().toString(36).slice(2, 12),
-      object: "checkout.session", amount_total: 3900, currency: "usd",
-      payment_intent: "pi_test_" + Math.random().toString(36).slice(2, 12),
-      payment_status: "paid", status: "complete",
-      customer_details: { email: "buyer@example.com" },
-      metadata: { assetId: "asset_123", buyerId: "user_456" }
-    }}
-  }),
-  "charge.refunded": () => ({
-    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
-    object: "event", type: "charge.refunded", created: now(),
-    data: { object: {
-      id: "ch_test_" + Math.random().toString(36).slice(2, 12),
-      object: "charge", amount: 3900, amount_refunded: 3900, currency: "usd",
-      payment_intent: "pi_test_" + Math.random().toString(36).slice(2, 12),
-      refunded: true, paid: true
-    }}
-  }),
-  "charge.refunded.partial": () => ({
-    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
-    object: "event", type: "charge.refunded", created: now(),
-    data: { object: {
-      id: "ch_test_" + Math.random().toString(36).slice(2, 12),
-      object: "charge", amount: 3900, amount_refunded: 1000, currency: "usd",
-      payment_intent: "pi_test_" + Math.random().toString(36).slice(2, 12),
-      refunded: false, paid: true
-    }}
-  }),
-  "charge.dispute.created": () => ({
-    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
-    object: "event", type: "charge.dispute.created", created: now(),
-    data: { object: {
-      id: "dp_test_" + Math.random().toString(36).slice(2, 12),
-      object: "dispute", amount: 3900, currency: "usd",
-      charge: "ch_test_" + Math.random().toString(36).slice(2, 12),
-      payment_intent: "pi_test_" + Math.random().toString(36).slice(2, 12),
-      reason: "fraudulent", status: "warning_needs_response"
-    }}
-  }),
-  "payment_intent.succeeded": () => ({
-    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
-    object: "event", type: "payment_intent.succeeded", created: now(),
-    data: { object: {
-      id: "pi_test_" + Math.random().toString(36).slice(2, 12),
-      object: "payment_intent", amount: 3900, amount_received: 3900,
-      currency: "usd", status: "succeeded"
-    }}
-  }),
-  "invoice.payment_failed": () => ({
-    id: "evt_test_" + Math.random().toString(36).slice(2, 10),
-    object: "event", type: "invoice.payment_failed", created: now(),
-    data: { object: {
-      id: "in_test_" + Math.random().toString(36).slice(2, 12),
-      object: "invoice", amount_due: 3900, currency: "usd",
-      attempt_count: 2, status: "open",
-      customer_email: "buyer@example.com"
-    }}
-  })
-};
+$("provider").addEventListener("change", syncTimestampField);
+syncTimestampField();
 
 $("gevent").addEventListener("change", (e) => {
   const t = TEMPLATES[e.target.value];
