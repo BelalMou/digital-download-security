@@ -1,7 +1,7 @@
 {
   "name": "digital-download-security",
   "version": "1.0.0",
-  "description": "Four ways a digital-download store leaks money, each with a runnable test.",
+  "description": "Verify, sign and send Stripe webhook events offline \u2014 plus four ways a digital-download store leaks money, each with a runnable test.",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -12,5 +12,32 @@
   "devDependencies": {
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "bin": {
+    "stripe-sig": "./cli.mjs"
+  },
+  "keywords": [
+    "stripe",
+    "webhook",
+    "signature",
+    "hmac",
+    "idempotency",
+    "payments",
+    "testing",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BelalMou/digital-download-security.git"
+  },
+  "homepage": "https://belalmou.github.io/digital-download-security/",
+  "files": [
+    "cli.mjs",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
   }
 }

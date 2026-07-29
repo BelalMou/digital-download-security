@@ -8,6 +8,35 @@ Selling files is the "easy" e-commerce case: no stock, no shipping, no returns
 logistics. That reputation is why the security gets skipped, and the same four
 holes turn up in tutorial after tutorial.
 
+## Command line
+
+Verify, sign and send Stripe webhook events without a Stripe login, a tunnel, or an
+account. No install:
+
+```bash
+# does my handler double-grant on a redelivery? send the identical event twice
+npx github:BelalMou/digital-download-security send \
+  --secret whsec_... --event checkout.session.completed \
+  --url http://localhost:3000/api/webhooks/stripe --times 2
+
+# why is constructEvent rejecting this?
+npx github:BelalMou/digital-download-security verify \
+  --secret whsec_... --sig 't=..,v1=..' --file body.json
+
+# build a signed header for a test
+npx github:BelalMou/digital-download-security sign --secret whsec_... --event charge.refunded
+```
+
+Events available: `checkout.session.completed`, `charge.refunded`,
+`charge.dispute.created`, `payment_intent.succeeded`, `invoice.payment_failed` — and
+`--file`/`--body` for anything else. The signing secret never leaves the process, and
+it refuses `sk_`/`rk_` keys so you can't paste an API key by mistake.
+
+There's also a [browser version](https://belalmou.github.io/digital-download-security/stripe-signature-debugger.html)
+if you'd rather not run anything.
+
+---
+
 Each one below comes with a **runnable test that fails against the naive
 implementation and passes against the fixed one**. Clone it, run `npm test`, and
 check your own store against the same cases.
