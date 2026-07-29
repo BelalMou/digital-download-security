@@ -37,6 +37,27 @@ which your handler gets wrong. It exits non-zero on a real failure, so it works 
 Every request is an ordinary webhook POST and it needs your signing secret to mean
 anything; point it at an endpoint you control, not at somebody else's service.
 
+### Other providers
+
+Stripe is the default, but the same class of bug — signing bytes that differ from the
+bytes you send — turns up everywhere. `--provider` handles the differences:
+
+| Provider | Header | What actually gets signed |
+|---|---|---|
+| `stripe` | `Stripe-Signature` | `<timestamp>.<body>`, hex, 5-min replay window |
+| `github` | `X-Hub-Signature-256` | the raw body, hex, no timestamp |
+| `shopify` | `X-Shopify-Hmac-Sha256` | the raw body, **base64**, no prefix |
+| `slack` | `X-Slack-Signature` | `v0:<timestamp>:<body>`, hex, 5-min window |
+
+```bash
+npx github:BelalMou/digital-download-security verify \
+  --provider github --secret "$WEBHOOK_SECRET" \
+  --sig 'sha256=...' --file payload.json
+```
+
+Every one is cross-checked in the test suite against signatures computed
+independently, so a refactor that changes what gets signed fails the build.
+
 Events available: `checkout.session.completed`, `charge.refunded`,
 `charge.dispute.created`, `payment_intent.succeeded`, `invoice.payment_failed` — and
 `--file`/`--body` for anything else. The signing secret never leaves the process, and

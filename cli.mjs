@@ -62,6 +62,61 @@ const EVENTS = {
   }),
 };
 
+
+// ── providers ───────────────────────────────────────────────────────────────
+/**
+ * Every one of these is HMAC-SHA256, and every one differs in what gets signed
+ * and how it's encoded. Getting that wrong is the single most common cause of
+ * "signature verification failed" across all of them.
+ */
+export const PROVIDERS = {
+  stripe: {
+    header: "Stripe-Signature",
+    // t=<unix>,v1=<hex> over "<t>.<body>"
+    signed: (body, { t }) => `${t}.${body}`,
+    encoding: "hex",
+    format: (sig, { t }) => `t=${t},v1=${sig}`,
+    extract: (h) => {
+      const t = /(?:^|,)\s*t=(\d+)/.exec(h)?.[1];
+      const sigs = [...String(h).matchAll(/v1=([a-f0-9]+)/g)].map((m) => m[1]);
+      return { t, sigs };
+    },
+    tolerance: 300,
+  },
+  github: {
+    header: "X-Hub-Signature-256",
+    // sha256=<hex> over the raw body only — no timestamp
+    signed: (body) => body,
+    encoding: "hex",
+    format: (sig) => `sha256=${sig}`,
+    extract: (h) => ({ t: null, sigs: [String(h).replace(/^sha256=/, "").trim()] }),
+    tolerance: null,
+  },
+  shopify: {
+    header: "X-Shopify-Hmac-Sha256",
+    // base64 of the raw body — no prefix, no timestamp
+    signed: (body) => body,
+    encoding: "base64",
+    format: (sig) => sig,
+    extract: (h) => ({ t: null, sigs: [String(h).trim()] }),
+    tolerance: null,
+  },
+  slack: {
+    header: "X-Slack-Signature",
+    // v0=<hex> over "v0:<timestamp>:<body>", timestamp in X-Slack-Request-Timestamp
+    signed: (body, { t }) => `v0:${t}:${body}`,
+    encoding: "hex",
+    format: (sig) => `v0=${sig}`,
+    extract: (h) => ({ t: null, sigs: [String(h).replace(/^v0=/, "").trim()] }),
+    tolerance: 300,
+    needsTimestampHeader: "X-Slack-Request-Timestamp",
+  },
+};
+
+function digest(secret, message, encoding) {
+  return crypto.createHmac("sha256", secret).update(message).digest(encoding);
+}
+
 // ── core ────────────────────────────────────────────────────────────────────
 export function hmac(secret, timestamp, payload) {
   return crypto.createHmac("sha256", secret).update(`${timestamp}.${payload}`).digest("hex");
@@ -102,6 +157,48 @@ export function verify(payload, header, secret) {
     return { ok: false, expected, age,
       reason: `signature is valid but the timestamp is ${age}s old, outside Stripe's ` +
               `${TOLERANCE}s replay window — constructEvent would still reject it` };
+  }
+  return { ok: true, expected, age };
+}
+
+
+/** Provider-aware signing. Returns { header, value, timestamp }. */
+export function signFor(provider, payload, secret, timestamp = now()) {
+  const p = PROVIDERS[provider];
+  if (!p) throw new Error(`unknown provider: ${provider}`);
+  const sig = digest(secret, p.signed(payload, { t: timestamp }), p.encoding);
+  return { header: p.header, value: p.format(sig, { t: timestamp }), timestamp };
+}
+
+/** Provider-aware verification. Returns { ok, reason, expected, age }. */
+export function verifyFor(provider, payload, headerValue, secret, timestamp) {
+  const p = PROVIDERS[provider];
+  if (!p) return { ok: false, reason: `unknown provider: ${provider}` };
+  const { t: parsedT, sigs } = p.extract(headerValue);
+  const t = timestamp ?? parsedT;
+
+  if (p.tolerance && !t) {
+    return { ok: false, reason: `${provider} signatures cover a timestamp; supply it` +
+      (p.needsTimestampHeader ? ` (the ${p.needsTimestampHeader} header)` : "") };
+  }
+  if (!sigs.length || !sigs[0]) return { ok: false, reason: "no signature found in the header" };
+
+  const expected = digest(secret, p.signed(payload, { t }), p.encoding);
+  const match = sigs.some((sig) => {
+    const a = Buffer.from(sig), b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
+  const age = t ? now() - Number(t) : 0;
+
+  if (!match) {
+    return { ok: false, expected, age,
+      reason: "signature does not match — most often the body is not byte-identical " +
+              "(re-serialised JSON), or the secret belongs to a different endpoint" };
+  }
+  if (p.tolerance && Math.abs(age) > p.tolerance) {
+    return { ok: false, expected, age,
+      reason: `signature is valid but the timestamp is ${age}s old, outside the ` +
+              `${p.tolerance}s replay window` };
   }
   return { ok: true, expected, age };
 }
@@ -198,7 +295,12 @@ function args(argv) {
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith("--")) out[a.slice(2)] = argv[i + 1]?.startsWith("--") ? true : argv[++i];
+    if (a.startsWith("--")) {
+      const next = argv[i + 1];
+      // A trailing flag has no next arg. Without this check `--quiet` at the end of
+      // the line parsed as undefined (falsy), so the flag silently did nothing.
+      out[a.slice(2)] = next === undefined || next.startsWith("--") ? true : argv[++i];
+    }
     else out._.push(a);
   }
   return out;
@@ -213,7 +315,8 @@ const USAGE = `stripe-sig — verify, sign and send Stripe webhook events offlin
   audit   --secret whsec_...  --url <endpoint>
           run the adversarial cases against your OWN endpoint and score it
 
-  events: ${Object.keys(EVENTS).join(", ")}
+  events:    ${Object.keys(EVENTS).join(", ")}
+  providers: ${Object.keys(PROVIDERS).join(", ")}   (--provider, default stripe)
 
 Nothing is uploaded anywhere. The signing secret never leaves this process.
 More: https://belalmou.github.io/digital-download-security/`;
@@ -228,9 +331,10 @@ function body(a) {
   return JSON.stringify(make());
 }
 
-function needSecret(a) {
-  if (!a.secret) { console.error("missing --secret (the whsec_... signing secret)"); process.exit(2); }
-  if (/^(sk|rk)_/.test(a.secret)) {
+function needSecret(a, provider) {
+  if (!a.secret) { console.error("missing --secret (the signing secret)"); process.exit(2); }
+  // Only Stripe uses whsec_/sk_ prefixes; don't nag GitHub or Shopify users.
+  if ((!provider || provider === "stripe") && /^(sk|rk)_/.test(a.secret)) {
     console.error("that looks like an API key, not a signing secret — signing secrets start with whsec_");
     process.exit(2);
   }
@@ -245,20 +349,27 @@ async function main() {
   if (!cmd || cmd === "help" || a.help) { console.log(USAGE); return; }
 
   if (cmd === "verify") {
-    const secret = needSecret(a);
-    if (!a.sig) { console.error("missing --sig (the Stripe-Signature header value)"); process.exit(2); }
-    const r = verify(body(a), a.sig, secret);
+    const secret = needSecret(a, a.provider);
+    if (!a.sig) { console.error("missing --sig (the signature header value)"); process.exit(2); }
+    const prov = a.provider || "stripe";
+    if (!PROVIDERS[prov]) { console.error(`unknown provider: ${prov}\nknown: ${Object.keys(PROVIDERS).join(", ")}`); process.exit(2); }
+    const r = verifyFor(prov, body(a), a.sig, secret, a.timestamp);
     if (r.ok) { console.log(`✓ signature valid (timestamp ${r.age}s old)`); return; }
     console.error(`✗ ${r.reason}`);
-    if (r.expected) console.error(`  expected v1=${r.expected}`);
+    if (r.expected) console.error(`  expected signature: ${r.expected}`);
     process.exit(1);
   }
 
   if (cmd === "sign") {
-    const secret = needSecret(a);
+    const secret = needSecret(a, a.provider);
+    const prov = a.provider || "stripe";
+    if (!PROVIDERS[prov]) { console.error(`unknown provider: ${prov}\nknown: ${Object.keys(PROVIDERS).join(", ")}`); process.exit(2); }
     const raw = body(a);
-    const { header } = sign(raw, secret);
+    const r = signFor(prov, raw, secret);
+    const header = prov === "stripe" ? r.value : `${r.header}: ${r.value}`;
     console.log(header);
+    if (PROVIDERS[prov].needsTimestampHeader && !a.quiet)
+      console.error(`# also send ${PROVIDERS[prov].needsTimestampHeader}: ${r.timestamp}`);
     if (!a.quiet) console.error(`\n# body (${raw.length} bytes) — sign and send these exact bytes\n${raw}`);
     return;
   }

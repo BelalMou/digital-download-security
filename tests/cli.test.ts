@@ -50,3 +50,58 @@ describe("stripe-sig core", () => {
     expect(parseSigHeader(withExtra).t).toBe(String(timestamp));
   });
 });
+
+// @ts-expect-error - plain ESM module
+import { signFor, verifyFor, PROVIDERS } from "../cli.mjs";
+
+describe("multi-provider signatures", () => {
+  const body = '{"hello":"world"}';
+  const secret = "shhh_secret";
+
+  // Reference values computed independently (Python hmac/hashlib), so a refactor
+  // that quietly changes what gets signed will fail here.
+  const REFERENCE: Record<string, string> = {
+    stripe: "t=1785200000,v1=79bf35a829cd00eec4452a7bf10477082580ed89ee60fc769cfd7ced90b8e7ef",
+    github: "sha256=9c44816487012df8d61dd06c06a28f70ff0f9f69311cf1ebd60d45d4679fc8dd",
+    shopify: "nESBZIcBLfjWHdBsBqKPcP8Pn2kxHPHr1g1F1GefyN0=",
+    slack: "v0=c0cc0262427825a80c884205a83f894bd89740a841c32bdafa7622c5202704cd",
+  };
+
+  for (const provider of Object.keys(REFERENCE)) {
+    it(`${provider}: matches an independently computed signature`, () => {
+      expect(signFor(provider, body, secret, 1785200000).value).toBe(REFERENCE[provider]);
+    });
+
+    it(`${provider}: rejects a tampered body`, () => {
+      const now = Math.floor(Date.now() / 1000);
+      const { value } = signFor(provider, body, secret, now);
+      expect(verifyFor(provider, body + " ", value, secret, now).ok).toBe(false);
+    });
+
+    it(`${provider}: rejects the wrong secret`, () => {
+      const now = Math.floor(Date.now() / 1000);
+      const { value } = signFor(provider, body, secret, now);
+      expect(verifyFor(provider, body, value, "not_the_secret", now).ok).toBe(false);
+    });
+
+    it(`${provider}: round-trips with a fresh timestamp`, () => {
+      const now = Math.floor(Date.now() / 1000);
+      const { value } = signFor(provider, body, secret, now);
+      expect(verifyFor(provider, body, value, secret, now).ok).toBe(true);
+    });
+  }
+
+  it("enforces a replay window only where the provider has one", () => {
+    const stale = Math.floor(Date.now() / 1000) - 100000;
+    for (const p of Object.keys(PROVIDERS)) {
+      const { value } = signFor(p, body, secret, stale);
+      const r = verifyFor(p, body, value, secret, stale);
+      // Stripe and Slack sign the timestamp; GitHub and Shopify do not.
+      expect(r.ok).toBe(PROVIDERS[p].tolerance === null);
+    }
+  });
+
+  it("refuses an unknown provider instead of guessing", () => {
+    expect(verifyFor("paypal", body, "x", secret).ok).toBe(false);
+  });
+});
